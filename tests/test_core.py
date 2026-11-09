@@ -63,6 +63,42 @@ class ReleaseTest(unittest.TestCase):
         self.assertIsNone(core.pick_release([{'tag_name': 'sysroot-1'}], None))
 
 
+class GitHubCacheTest(Base):
+    def test_etag_and_rate_limit(self):
+        import urllib.error
+        import urllib.request
+        calls = []
+
+        class Answer(io.BytesIO):
+            headers = {'ETag': 'W/"1"'}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def fake(request, timeout=None, context=None):
+            calls.append(request.get_header('If-none-match'))
+            if len(calls) == 1:
+                return Answer(json.dumps([{'tag_name': 'v1.0.0'}]).encode())
+            code = 304 if len(calls) == 2 else 403
+            raise urllib.error.HTTPError(request.full_url, code, 'x',
+                                         {'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '0'}, None)
+
+        real = urllib.request.urlopen
+        urllib.request.urlopen = fake
+        try:
+            for _ in range(3):
+                self.assertEqual(core.latest_release('Ken5998/x', None, self.p['cache'])['version'], '1.0.0')
+            with self.assertRaises(core.PortsError) as e:
+                core.latest_release('Ken5998/y', None, self.p['cache'])
+            self.assertIn('60 checks', str(e.exception))
+        finally:
+            urllib.request.urlopen = real
+        self.assertEqual(calls[:3], [None, 'W/"1"', 'W/"1"'])
+
+
 class CatalogTest(unittest.TestCase):
     def test_catalog_is_valid(self):
         ports = core.load_catalog(ROOT)

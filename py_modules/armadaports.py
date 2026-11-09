@@ -135,6 +135,40 @@ def open_url(url, timeout=30):
         raise PortsError(f'Could not reach GitHub: {getattr(e, "reason", e)}') from e
 
 
+def github_json(url, cache_dir=None):
+    """A GitHub API answer. With cache_dir, the last answer and its ETag are kept and asked about
+    with If-None-Match: an unchanged answer (304) does not count against the 60 requests an hour
+    GitHub allows without an account, and when the limit is reached the last answer is used."""
+    import urllib.error
+    import urllib.request
+    cache = os.path.join(cache_dir, 'github', hashlib.sha1(url.encode()).hexdigest() + '.json') \
+        if cache_dir else None
+    cached = read_json(cache) if cache else None
+    headers = {'User-Agent': 'armada-ports', 'Accept': 'application/vnd.github+json'}
+    if isinstance(cached, dict) and cached.get('etag'):
+        headers['If-None-Match'] = cached['etag']
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30,
+                                    context=ssl_context()) as response:
+            body = json.load(response)
+            etag = response.headers.get('ETag')
+    except urllib.error.HTTPError as e:
+        if e.code == 304 and isinstance(cached, dict):
+            return cached['body']
+        if e.code in (403, 429) and e.headers.get('X-RateLimit-Remaining') == '0':
+            if isinstance(cached, dict):
+                return cached['body']
+            reset = int(e.headers.get('X-RateLimit-Reset') or 0)
+            minutes = max(1, round((reset - time.time()) / 60)) if reset else 60
+            raise PortsError(f'GitHub allows 60 checks an hour without an account; try again in {minutes} min.')
+        raise PortsError(f'GitHub answered {e.code}.') from e
+    except (OSError, ValueError) as e:
+        raise PortsError(f'Could not reach GitHub: {getattr(e, "reason", e)}') from e
+    if cache and etag:
+        write(cache, json.dumps({'etag': etag, 'body': body}))
+    return body
+
+
 def download(url, dst, sha256=None, progress=None):
     """Downloads to dst; checks the SHA-256 GitHub lists for the asset when there is one."""
     digest = hashlib.sha256()
@@ -177,10 +211,10 @@ def pick_release(releases, asset_name):
     return best
 
 
-def latest_release(repo, asset_name):
+def latest_release(repo, asset_name, cache_dir=None):
     """The newest version release of a repository and its launcher asset."""
-    with open_url(f'https://api.github.com/repos/{repo}/releases?per_page=30') as response:
-        rel = pick_release(json.load(response), asset_name)
+    rel = pick_release(github_json(f'https://api.github.com/repos/{repo}/releases?per_page=30', cache_dir),
+                       asset_name)
     if rel is None:
         raise PortsError(f'{repo} has no release yet.')
     tag = str(rel['tag_name'])
@@ -723,13 +757,13 @@ def check_updates(p, plugin_dir, refresh=False, current=None):
     errors = []
     for port in load_catalog(plugin_dir):
         try:
-            latest = latest_release(port['repo'], port.get('asset'))
+            latest = latest_release(port['repo'], port.get('asset'), p['cache'])
             latest.update(adapter_for(p, port, state).extra_latest())
             state['latest'][port['id']] = latest
         except PortsError as e:
             errors.append(f'{port["name"]}: {e}')
     try:
-        mine = latest_release(PLUGIN_REPO, 'ArmadaPorts-v{version}.zip')
+        mine = latest_release(PLUGIN_REPO, 'ArmadaPorts-v{version}.zip', p['cache'])
         newer = current and mine['url'] and version_key(mine['version']) > version_key(current)
         state['plugin'] = mine if newer else None
     except PortsError:
@@ -836,7 +870,7 @@ def start_job(p, plugin_dir, port_id, action, iso=None, bios=None, add_to_steam=
     state = load_state(p)
     latest = state['latest'].get(port_id)
     if not latest:
-        latest = latest_release(port['repo'], port.get('asset'))
+        latest = latest_release(port['repo'], port.get('asset'), p['cache'])
     os.makedirs(p['logs'], exist_ok=True)
     log = os.path.join(p['logs'], f'{port_id}-{time.strftime("%Y%m%d-%H%M%S")}.log')
     unit = f'armada-ports-{port_id}-{int(time.time())}'
