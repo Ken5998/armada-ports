@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "ports": [
+    {
+      "id": "pinyon-shift",
+      "name": "Pinyon Shift",
+      "game": "Forza Horizon (Xbox 360)",
+      "repo": "Ken5998/pinyon-shift-arm64",
+      "asset": "PinyonShift-Launcher-linux-arm64.tar.gz",
+      "launcher": "PinyonShiftLauncher",
+      "adapter": "pinyon",
+      "needs": ["iso"],
+      "disc": "USA retail disc (MS-2505)",
+      "build_minutes": [25, 60]
+    },
+    {
+      "id": "fifa-street",
+      "name": "FIFA Street",
+      "game": "FIFA Street (2012, Xbox 360)",
+      "repo": "Ken5998/fifa-street-arm64",
+      "asset": "FifaStreet-Launcher-linux-arm64.tar.gz",
+      "launcher": "fifastreet-launcher",
+      "adapter": "fifa",
+      "needs": ["iso"],
+      "build_minutes": [60, null],
+      "space_gb": 30
+    },
+    {
+      "id": "saints-reborn",
+      "name": "Saints Reborn",
+      "game": "Saints Row (Xbox 360)",
+      "repo": "Ken5998/saints-reborn-arm64",
+      "asset": "SaintsReborn-Launcher-linux-arm64.tar.gz",
+      "adapter": null,
+      "needs": ["iso"]
+    },
+    {
+      "id": "mm3-recomp",
+      "name": "Midtown Madness 3",
+      "game": "Midtown Madness 3 (Xbox)",
+      "repo": "Ken5998/mm3-recomp-arm64",
+      "asset": "MidtownMadness3-Launcher-linux-arm64.tar.gz",
+      "adapter": null,
+      "needs": ["iso"]
+    },
+    {
+      "id": "rusty-mcla",
+      "name": "Rusty MCLA",
+      "game": "Midnight Club: Los Angeles (Xbox 360)",
+      "repo": "Ken5998/rusty-mcla-arm64",
+      "asset": "RustyMCLA-Launcher-linux-arm64.tar.gz",
+      "adapter": null,
+      "needs": ["iso"]
+    },
+    {
+      "id": "road-trip",
+      "name": "Road Trip Adventure",
+      "game": "Road Trip Adventure (PS2, ARMSX2)",
+      "repo": "Ken5998/road-trip-arm64",
+      "asset": "RoadTrip-Launcher-linux-arm64.tar.gz",
+      "adapter": null,
+      "needs": ["iso", "bios"]
+    },
+    {
+      "id": "reskate",
+      "name": "ReSkate",
+      "game": "skate. (Steam, Proton)",
+      "repo": "Ken5998/reskate-arm64",
+      "asset": "ReSkate-armadaos.zip",
+      "adapter": null,
+      "needs": []
+    },
+    {
+      "id": "azimuth",
+      "name": "Azimuth Turnip",
+      "game": "Forza Horizon 2 (Azimuth driver)",
+      "repo": "Ken5998/azimuth-arm64",
+      "asset": "azimuth-turnip-{version}.tar.gz",
+      "adapter": null,
+      "needs": []
+    }
+  ]
+}

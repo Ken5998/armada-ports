@@ -1,0 +1,11 @@
+{
+  "name": "Armada Ports",
+  "author": "Kenan Kasumović",
+  "flags": [],
+  "api_version": 1,
+  "publish": {
+    "tags": ["armadaos", "arm64", "ports", "launcher"],
+    "description": "The ARM64 game ports for ArmadaOS in one place: install them from your own disc image, keep them up to date and add them to Steam, all from Game Mode.",
+    "image": ""
+  }
+}
