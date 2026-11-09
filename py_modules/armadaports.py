@@ -593,10 +593,12 @@ class Mm3(Adapter):
         if not isinstance(installed, dict) and not os.path.isfile(binary):
             return None
         files = os.path.join(self.data, 'game_files')
+        # mm3_setup.py deletes installed.json when a build starts and writes it back as the last
+        # step: an old binary without it is a build that did not finish.
         return {
             'data': self.data,
             'version': str((installed or {}).get('version') or ''),
-            'built': os.path.isfile(binary),
+            'built': os.path.isfile(binary) and isinstance(installed, dict),
             'game_files': os.path.isdir(files) and bool(os.listdir(files)),
             'exe': os.path.join(self.data, 'midtown-madness-3.sh'),
             'start_dir': self.data,
@@ -990,6 +992,27 @@ def fetch_launcher(job, a):
     job.line(f'Launcher {rel.get("tag")} in {a.launcher_dir}')
 
 
+def keep_awake(job):
+    """Asks logind not to sleep or shut down while the job runs (a build of an hour would stop);
+    None when logind refuses, which leaves the job to run without it."""
+    tool = shutil.which('systemd-inhibit', path='/usr/bin:/bin')
+    if not tool:
+        return None
+    why = f'Building {job.data.get("id", "a port")}'
+    try:
+        proc = subprocess.Popen([tool, '--what=sleep:shutdown:idle', '--who=Armada Ports', f'--why={why}',
+                                 '--mode=block', 'sleep', 'infinity'], stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        time.sleep(0.5)
+    except OSError:
+        return None
+    if proc.poll() is not None:
+        job.line(f'Could not keep the device awake: {proc.stderr.read().decode(errors="replace").strip()}')
+        return None
+    job.line('Sleep and shutdown are held off while this runs.')
+    return proc
+
+
 def run_job(path):
     job = Job(path)
     try:
@@ -1005,6 +1028,7 @@ def run_job(path):
         sys.exit(1)
 
     signal.signal(signal.SIGTERM, stop)
+    inhibitor = keep_awake(job)
     d = job.data
     p = paths(d['home'])
     try:
@@ -1022,6 +1046,8 @@ def run_job(path):
         job.update(state='failed', message=str(e), finished=time.time())
         return 1
     finally:
+        if inhibitor:
+            inhibitor.terminate()
         job.log.close()
     return 0
 

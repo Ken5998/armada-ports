@@ -201,8 +201,10 @@ class DetectTest(Base):
         os.makedirs(os.path.join(data, 'bin'))
         os.makedirs(os.path.join(data, 'game_files'))
         open(os.path.join(data, 'bin', 'mm3_recomp'), 'w').close()
+        self.assertFalse(a.detect()['built'])   # binary without installed.json: unfinished build
         json.dump({'version': '0.1.12', 'built': 1}, open(os.path.join(data, 'installed.json'), 'w'))
         info = a.detect()
+        self.assertTrue(info['built'])
         self.assertEqual(info['version'], '0.1.12')
         self.assertFalse(info['game_files'])
         self.assertTrue(a.update_available(info, {'version': '0.2.0'}))
