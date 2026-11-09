@@ -55,6 +55,14 @@ class VersionTest(unittest.TestCase):
                          zlib.crc32(f'"{exe}"FIFA Street'.encode()) | 0x80000000)
 
 
+class ReleaseTest(unittest.TestCase):
+    def test_sysroot_builds_are_not_releases(self):
+        rels = [{'tag_name': 'sysroot-2026.11.09.2'}, {'tag_name': 'v0.2.0'}, {'tag_name': 'v0.1.12'},
+                {'tag_name': 'v0.3.0', 'prerelease': True}, {'tag_name': 'v0.4.0', 'draft': True}]
+        self.assertEqual(core.pick_release(rels, None)['tag_name'], 'v0.2.0')
+        self.assertIsNone(core.pick_release([{'tag_name': 'sysroot-1'}], None))
+
+
 class CatalogTest(unittest.TestCase):
     def test_catalog_is_valid(self):
         ports = core.load_catalog(ROOT)

@@ -161,11 +161,27 @@ def asset_sha256(asset):
     return digest[7:] if digest.startswith('sha256:') and len(digest) == 71 else None
 
 
+RELEASE_TAG = re.compile(r'^v?\d+\.\d+\.\d+$')
+
+
+def pick_release(releases, asset_name):
+    """The highest vX.Y.Z release. GitHub's own "latest" can be a sysroot-YYYY.MM.DD build a port
+    publishes after its game release, so tags that are no version are skipped."""
+    best = None
+    for rel in releases if isinstance(releases, list) else []:
+        if not isinstance(rel, dict) or rel.get('draft') or rel.get('prerelease'):
+            continue
+        tag = str(rel.get('tag_name') or '')
+        if RELEASE_TAG.match(tag) and (best is None or version_key(tag) > version_key(best['tag_name'])):
+            best = rel
+    return best
+
+
 def latest_release(repo, asset_name):
-    """The newest published release of a repository and its launcher asset."""
-    with open_url(f'https://api.github.com/repos/{repo}/releases/latest') as response:
-        rel = json.load(response)
-    if not isinstance(rel, dict) or 'tag_name' not in rel:
+    """The newest version release of a repository and its launcher asset."""
+    with open_url(f'https://api.github.com/repos/{repo}/releases?per_page=30') as response:
+        rel = pick_release(json.load(response), asset_name)
+    if rel is None:
         raise PortsError(f'{repo} has no release yet.')
     tag = str(rel['tag_name'])
     version = tag.lstrip('vV')
