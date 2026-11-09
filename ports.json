@@ -20,10 +20,20 @@
       "repo": "Ken5998/fifa-street-arm64",
       "asset": "FifaStreet-Launcher-linux-arm64.tar.gz",
       "launcher": "fifastreet-launcher",
-      "adapter": "fifa",
+      "adapter": "overlay",
       "needs": ["iso"],
       "build_minutes": [60, null],
-      "space_gb": 30
+      "space_gb": 30,
+      "overlay": {
+        "data": "FifaStreet-arm64",
+        "script": "scripts/build.sh",
+        "game": "game/fifastreet.sh",
+        "files": "GameData/default.xex",
+        "env": {
+          "FS_ADD_TO_STEAM": "0"
+        },
+        "commit_updates": true
+      }
     },
     {
       "id": "saints-reborn",
@@ -31,8 +41,21 @@
       "game": "Saints Row (Xbox 360)",
       "repo": "Ken5998/saints-reborn-arm64",
       "asset": "SaintsReborn-Launcher-linux-arm64.tar.gz",
-      "adapter": null,
-      "needs": ["iso"]
+      "adapter": "overlay",
+      "needs": ["iso"],
+      "launcher": "saintsreborn-launcher",
+      "build_minutes": [60, null],
+      "space_gb": 40,
+      "overlay": {
+        "data": "SaintsReborn-arm64",
+        "script": "scripts/build.sh",
+        "game": "SaintsReborn/dist/saintsrow",
+        "files": "SaintsReborn/dist/game/default.xex",
+        "env": {
+          "SR_ADD_TO_STEAM": "0"
+        },
+        "commit_updates": true
+      }
     },
     {
       "id": "mm3-recomp",
@@ -40,8 +63,11 @@
       "game": "Midtown Madness 3 (Xbox)",
       "repo": "Ken5998/mm3-recomp-arm64",
       "asset": "MidtownMadness3-Launcher-linux-arm64.tar.gz",
-      "adapter": null,
-      "needs": ["iso"]
+      "adapter": "mm3",
+      "needs": ["iso"],
+      "launcher": "mm3-launcher",
+      "build_minutes": [30, 60],
+      "space_gb": 6
     },
     {
       "id": "rusty-mcla",
@@ -49,8 +75,19 @@
       "game": "Midnight Club: Los Angeles (Xbox 360)",
       "repo": "Ken5998/rusty-mcla-arm64",
       "asset": "RustyMCLA-Launcher-linux-arm64.tar.gz",
-      "adapter": null,
-      "needs": ["iso"]
+      "adapter": "rusty-mcla",
+      "needs": ["iso"],
+      "launcher": "rusty-mcla-launcher",
+      "steam_name": "Midnight Club: Los Angeles",
+      "disc": "Complete Edition",
+      "space_gb": 16,
+      "overlay": {
+        "data": "RustyMCLA-arm64",
+        "script": "scripts/install.sh",
+        "game": "game/mcla.sh",
+        "files": "disc.txt",
+        "release_file": "build/release"
+      }
     },
     {
       "id": "road-trip",

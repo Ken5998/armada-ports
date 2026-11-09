@@ -18,9 +18,9 @@ replacement.
 | --- | --- | --- |
 | [Pinyon Shift](https://github.com/Ken5998/pinyon-shift-arm64) | Forza Horizon (Xbox 360) | install, update, Steam |
 | [FIFA Street](https://github.com/Ken5998/fifa-street-arm64) | FIFA Street (2012, Xbox 360) | install, update, Steam |
-| [Saints Reborn](https://github.com/Ken5998/saints-reborn-arm64) | Saints Row (Xbox 360) | new releases only, for now |
-| [Midtown Madness 3](https://github.com/Ken5998/mm3-recomp-arm64) | Midtown Madness 3 (Xbox) | new releases only, for now |
-| [Rusty MCLA](https://github.com/Ken5998/rusty-mcla-arm64) | Midnight Club: Los Angeles | new releases only, for now |
+| [Saints Reborn](https://github.com/Ken5998/saints-reborn-arm64) | Saints Row (Xbox 360) | install, update, Steam |
+| [Midtown Madness 3](https://github.com/Ken5998/mm3-recomp-arm64) | Midtown Madness 3 (Xbox) | install, update, Steam |
+| [Rusty MCLA](https://github.com/Ken5998/rusty-mcla-arm64) | Midnight Club: Los Angeles | install, update, Steam |
 | [Road Trip Adventure](https://github.com/Ken5998/road-trip-arm64) | Road Trip Adventure (PS2) | new releases only, for now |
 | [ReSkate](https://github.com/Ken5998/reskate-arm64) | skate. (Steam) | new releases only, for now |
 | [Azimuth Turnip](https://github.com/Ken5998/azimuth-arm64) | Forza Horizon 2 driver | new releases only, for now |
@@ -53,7 +53,7 @@ Pick a port in the list to open it.
   The game is then added to Steam (no Steam restart needed).
 - **It is already installed** looks for an install made with the launcher in its usual place. If it
   is somewhere else, pick the folder you unpacked the launcher in.
-- **Update to …** shows up when a new release (or, for FIFA Street, new scripts on main) is out. It
+- **Update to …** shows up when a new release (or, for FIFA Street and Saints Reborn, new scripts on main) is out. It
   replaces the launcher with the new one and rebuilds from the game files already extracted, so the
   disc image is only needed again if those are gone.
 - **Add to Steam** adds the game as a non-Steam shortcut. Artwork is up to you (SteamGridDB).
@@ -73,8 +73,11 @@ used on the same install:
   `~/.local/share/PinyonShift/source/<version>` as the launcher does, then runs
   `tools/pinyon.py setup` (with `--iso` the first time, `--build-only` after an update) and
   `tools/pinyon.py shortcuts add` for the start script.
-- **FIFA Street**: keeps the repository clone in `~/.local/share/FifaStreet-arm64/overlay` up to
-  date and runs `scripts/build.sh` with the disc image or `-`.
+- **FIFA Street, Saints Reborn, Rusty MCLA**: keep the repository clone in
+  `~/.local/share/<Port>-arm64/overlay` up to date and run its `scripts/build.sh` (Rusty MCLA:
+  `scripts/install.sh`, with the settings saved by its launcher) with the disc image or `-`.
+- **Midtown Madness 3**: runs the launcher's own `setup/mm3_setup.py build [ISO]` and reads its
+  progress events.
 
 Launchers the plugin downloads go to `~/.local/share/armada-ports/launchers/<port>`, or replace the
 one in the folder you picked. A build runs with `systemd-run --user` and writes its progress to

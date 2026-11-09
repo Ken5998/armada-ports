@@ -230,7 +230,11 @@ class Adapter:
     """How the plugin finds, installs and updates one port. A port without its own adapter is
     listed with its newest release only: install it with its launcher for now."""
     supported = False
-    name = ''
+
+    @property
+    def name(self):
+        """The game's name in Steam, as the port's own add-to-Steam script writes it."""
+        return self.port.get('steam_name') or self.port['name']
 
     def __init__(self, p, port, entry):
         self.p, self.port, self.entry = p, port, entry
@@ -268,7 +272,6 @@ class Pinyon(Adapter):
     """Pinyon Shift: upstream's launcher with this repository's source payload. The launcher's work
     is tools/pinyon.py in the payload, so the plugin runs that, as the launcher does."""
     supported = True
-    name = 'Pinyon Shift'
 
     def install_root(self):
         base = os.path.join(self.p['share'], 'PinyonShift')
@@ -441,16 +444,23 @@ def extract_pinyon_payload(payload, dest):
     return written
 
 
-class Fifa(Adapter):
-    """FIFA Street: the launcher builds with this repository's scripts from a git clone it keeps up
-    to date (overlay/), so a new commit on main is an update as much as a new launcher release."""
+class GitOverlay(Adapter):
+    """FIFA Street, Saints Reborn, Rusty MCLA: the launcher keeps a git clone of the port's repository
+    in DATA/overlay and runs its build script with the disc image, or "-" to reuse what an earlier
+    run set up. Where things are comes from the port's "overlay" entry in ports.json."""
     supported = True
-    name = 'FIFA Street'
-    REPO_URL = 'https://github.com/Ken5998/fifa-street-arm64'
+
+    @property
+    def cfg(self):
+        return self.port['overlay']
 
     @property
     def data(self):
-        return os.path.join(self.p['share'], 'FifaStreet-arm64')
+        return os.path.join(self.p['share'], self.cfg['data'])
+
+    @property
+    def repo_url(self):
+        return f'https://github.com/{self.port["repo"]}'
 
     def overlay_commit(self):
         try:
@@ -464,45 +474,61 @@ class Fifa(Adapter):
         if not self.launcher_installed():
             return self.entry.get('launcher_version')
         try:
-            out = subprocess.run([os.path.join(self.launcher_dir, 'fifastreet-launcher'), '--version'],
+            out = subprocess.run([os.path.join(self.launcher_dir, self.port['launcher']), '--version'],
                                  capture_output=True, text=True, timeout=10)
             return out.stdout.strip() or None
         except (OSError, subprocess.TimeoutExpired):
             return None
 
+    def installed_version(self):
+        """The version the panel compares with the newest release."""
+        release_file = self.cfg.get('release_file')
+        if release_file:
+            try:
+                with open(os.path.join(self.data, release_file)) as f:
+                    return f.read().strip().lstrip('vV') or None
+            except OSError:
+                return None
+        return self.launcher_version()
+
     def detect(self):
-        game = os.path.join(self.data, 'game', 'fifastreet.sh')
+        game = os.path.join(self.data, self.cfg['game'])
         commit = self.overlay_commit()
         if not commit and not os.path.isfile(game):
             return None
-        launcher = self.launcher_version()
         return {
             'data': self.data,
-            'version': launcher or '',
+            'version': self.installed_version() or '',
             'commit': commit or '',
             'built': os.path.isfile(game),
-            'game_files': os.path.isfile(os.path.join(self.data, 'GameData', 'default.xex')),
+            'game_files': os.path.exists(os.path.join(self.data, self.cfg['files'])),
             'exe': game,
             'start_dir': os.path.dirname(game),
         }
 
     def extra_latest(self):
-        head = git_head(self.REPO_URL)
+        if not self.cfg.get('commit_updates'):
+            return {}
+        head = git_head(self.repo_url)
         return {'commit': head} if head else {}
 
     def update_available(self, info, latest):
         if not info or not latest:
             return False
-        if latest.get('commit') and info.get('commit') and latest['commit'] != info['commit']:
+        if self.cfg.get('commit_updates') and latest.get('commit') and info.get('commit') and \
+                latest['commit'] != info['commit']:
             return True
         return super().update_available(info, latest)
 
     def adopt(self, folder):
-        if folder and os.path.isfile(os.path.join(folder, 'fifastreet-launcher')):
+        if folder and os.path.isfile(os.path.join(folder, self.port['launcher'])):
             return {'launcher_dir': folder}
         if folder:
-            raise PortsError('That folder has no fifastreet-launcher.')
+            raise PortsError(f'That folder has no {self.port["launcher"]}.')
         return {}
+
+    def env(self):
+        return dict(os.environ, **self.cfg.get('env', {}))
 
     def build(self, job, iso, bios):
         overlay = os.path.join(self.data, 'overlay')
@@ -513,20 +539,115 @@ class Fifa(Adapter):
         else:
             os.makedirs(self.data, exist_ok=True)
             shutil.rmtree(overlay, ignore_errors=True)
-            job.run(['git', 'clone', '-q', '--depth', '50', self.REPO_URL, overlay])
-        if not iso and not os.path.isfile(os.path.join(self.data, 'GameData', 'default.xex')):
-            raise PortsError('The game files are not extracted yet: pick your disc image.')
-        job.stage('Building FIFA Street (an hour or more)')
-        job.run(['bash', os.path.join(overlay, 'scripts', 'build.sh'), iso or '-', self.data],
-                env=dict(os.environ, FS_ADD_TO_STEAM='0'), parse=step_event)
+            job.run(['git', 'clone', '-q', '--depth', '50', self.repo_url, overlay])
+        if not iso and not os.path.exists(os.path.join(self.data, self.cfg['files'])):
+            raise PortsError('The game files are not there yet: pick your disc image.')
+        job.stage(f'Building {self.port["name"]}')
+        job.run(['bash', os.path.join(overlay, self.cfg['script']), iso or '-', self.data], env=self.env(),
+                parse=step_event)
 
     def remove(self):
         return [self.data] if os.path.isdir(self.data) else []
 
 
+class RustyMcla(GitOverlay):
+    """Rusty MCLA's install.sh takes the game's settings from the environment; the launcher passes
+    the ones saved in DATA/launcher.conf, so the plugin does too (else an update would reset them)."""
+    RESOLUTIONS = ('1280x720', '1600x900', '1920x1080', '2560x1440')
+
+    def env(self):
+        conf = {}
+        try:
+            with open(os.path.join(self.data, 'launcher.conf')) as f:
+                for line in f:
+                    key, _, value = line.strip().partition('=')
+                    conf[key] = value
+        except OSError:
+            pass
+        resolution = conf.get('resolution', '1280x720')
+        fps = conf.get('fps_cap', '60')
+        try:
+            scale = int(conf.get('render_scale', '100'))
+        except ValueError:
+            scale = 100
+        return dict(super().env(),
+                    MCLA_RESOLUTION=resolution if re.fullmatch(r'\d+x\d+', resolution) else '1280x720',
+                    MCLA_WINDOW_MODE='borderless' if conf.get('fill') == '1' else 'windowed',
+                    MCLA_FPS_CAP=fps if fps in ('0', '30', '60') else '60',
+                    MCLA_RENDER_SCALE=f'{min(max(scale, 50), 100) / 100:.2f}',
+                    MCLA_ADD_TO_STEAM='0')
+
+
+class Mm3(Adapter):
+    """Midtown Madness 3: the launcher's work is setup/mm3_setup.py, which prints one tab-separated
+    event per line (@step, @progress, @done, @error) and keeps everything in DATA."""
+    supported = True
+
+    @property
+    def data(self):
+        return os.path.join(self.p['share'], 'MidtownMadness3')
+
+    def detect(self):
+        installed = read_json(os.path.join(self.data, 'installed.json'), None)
+        binary = os.path.join(self.data, 'bin', 'mm3_recomp')
+        if not isinstance(installed, dict) and not os.path.isfile(binary):
+            return None
+        files = os.path.join(self.data, 'game_files')
+        return {
+            'data': self.data,
+            'version': str((installed or {}).get('version') or ''),
+            'built': os.path.isfile(binary),
+            'game_files': os.path.isdir(files) and bool(os.listdir(files)),
+            'exe': os.path.join(self.data, 'midtown-madness-3.sh'),
+            'start_dir': self.data,
+        }
+
+    def adopt(self, folder):
+        if folder and os.path.isfile(os.path.join(folder, 'setup', 'mm3_setup.py')):
+            return {'launcher_dir': folder}
+        if folder:
+            raise PortsError('That folder has no setup/mm3_setup.py.')
+        return {}
+
+    def build(self, job, iso, bios):
+        setup = os.path.join(self.launcher_dir, 'setup', 'mm3_setup.py')
+        if not os.path.isfile(setup):
+            raise PortsError(f'No setup/mm3_setup.py in {self.launcher_dir}.')
+        if not iso and not (self.detect() or {}).get('game_files'):
+            raise PortsError('The game files are not copied yet: pick your disc image.')
+        python = shutil.which('python3') or '/usr/bin/python3'
+        job.stage('Building Midtown Madness 3')
+        job.run([python, setup, 'build', *([iso] if iso else [])], cwd=os.path.dirname(setup),
+                env=dict(os.environ, PYTHONUNBUFFERED='1'), parse=mm3_event)
+
+    def remove(self):
+        return [self.data] if os.path.isdir(self.data) else []
+
+
+def mm3_event(job, line):
+    """@step N TOTAL TITLE, @progress FRACTION DETAIL, @error MESSAGE from mm3_setup.py."""
+    if not line.startswith('@'):
+        return False
+    kind, *fields = line[1:].split('\t')
+    if kind == 'step' and len(fields) >= 3:
+        job.update(stage=f'{fields[0]}/{fields[1]} {fields[2]}', percent=None)
+    elif kind == 'progress' and len(fields) >= 1:
+        try:
+            fraction = float(fields[0])
+        except ValueError:
+            fraction = -1
+        job.update(percent=fraction * 100 if fraction >= 0 else None,
+                   message=fields[1] if len(fields) > 1 else job.data.get('message', ''))
+    elif kind == 'error' and fields:
+        job.update(message=fields[0])
+    job.line(line)
+    return True
+
+
 def step_event(job, line):
-    """`==> [12:00:00] Step` lines from the build scripts start a stage; [n/m] lines are progress."""
-    m = re.match(r'^==> \[[0-9:]+\] (.+)$', line)
+    """`==> [12:00:00] Step` or `==> Step` lines from the build scripts start a stage; [n/m] lines
+    are progress."""
+    m = re.match(r'^==> (?:\[[0-9:]+\] )?(.+)$', line)
     if m:
         job.update(stage=m.group(1), percent=None)
         return False
@@ -536,7 +657,7 @@ def step_event(job, line):
     return False
 
 
-ADAPTERS = {'pinyon': Pinyon, 'fifa': Fifa}
+ADAPTERS = {'pinyon': Pinyon, 'overlay': GitOverlay, 'rusty-mcla': RustyMcla, 'mm3': Mm3}
 
 
 def adapter_for(p, port, state=None):

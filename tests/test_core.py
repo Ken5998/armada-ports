@@ -73,6 +73,9 @@ class CatalogTest(unittest.TestCase):
             self.assertIn(port.get('adapter'), (None, *core.ADAPTERS))
             if port.get('adapter'):
                 self.assertTrue(port.get('launcher'), port['id'])
+            if port.get('adapter') in ('overlay', 'rusty-mcla'):
+                for key in ('data', 'script', 'game', 'files'):
+                    self.assertIn(key, port['overlay'], port['id'])
 
 
 class PayloadTest(Base):
@@ -158,6 +161,53 @@ class DetectTest(Base):
         self.assertTrue(a.update_available(info, {'version': '0.2.0', 'commit': '0' * 40}))
         self.assertFalse(a.update_available(dict(info, version='0.2.0'), {'version': '0.2.0', 'commit': info['commit']}))
 
+    def test_saints(self):
+        a = core.adapter_for(self.p, self.port('saints-reborn'))
+        self.assertIsNone(a.detect())
+        dist = os.path.join(self.p['share'], 'SaintsReborn-arm64', 'SaintsReborn', 'dist')
+        os.makedirs(os.path.join(dist, 'game'))
+        open(os.path.join(dist, 'saintsrow'), 'w').close()
+        open(os.path.join(dist, 'game', 'default.xex'), 'w').close()
+        info = a.detect()
+        self.assertTrue(info['built'] and info['game_files'])
+        self.assertEqual(info['start_dir'], dist)
+        self.assertEqual(a.name, 'Saints Reborn')
+        self.assertEqual(a.env()['SR_ADD_TO_STEAM'], '0')
+
+    def test_rusty_mcla(self):
+        a = core.adapter_for(self.p, self.port('rusty-mcla'))
+        data = os.path.join(self.p['share'], 'RustyMCLA-arm64')
+        os.makedirs(os.path.join(data, 'game'))
+        os.makedirs(os.path.join(data, 'build'))
+        open(os.path.join(data, 'game', 'mcla.sh'), 'w').close()
+        open(os.path.join(data, 'build', 'release'), 'w').write('v0.3.1\n')
+        open(os.path.join(data, 'launcher.conf'), 'w').write(
+            'disc=/x.iso\nresolution=1600x900\nfill=1\nfps_cap=30\nrender_scale=67\nadd_to_steam=1\n')
+        info = a.detect()
+        self.assertEqual(info['version'], '0.3.1')
+        self.assertFalse(info['game_files'])
+        self.assertTrue(a.update_available(info, {'version': '0.4.0'}))
+        self.assertFalse(a.update_available(info, {'version': '0.3.1', 'commit': 'f' * 40}))
+        env = a.env()
+        self.assertEqual((env['MCLA_RESOLUTION'], env['MCLA_WINDOW_MODE'], env['MCLA_FPS_CAP'],
+                          env['MCLA_RENDER_SCALE'], env['MCLA_ADD_TO_STEAM']),
+                         ('1600x900', 'borderless', '30', '0.67', '0'))
+        self.assertEqual(a.name, 'Midnight Club: Los Angeles')
+
+    def test_mm3(self):
+        a = core.adapter_for(self.p, self.port('mm3-recomp'))
+        self.assertIsNone(a.detect())
+        data = os.path.join(self.p['share'], 'MidtownMadness3')
+        os.makedirs(os.path.join(data, 'bin'))
+        os.makedirs(os.path.join(data, 'game_files'))
+        open(os.path.join(data, 'bin', 'mm3_recomp'), 'w').close()
+        json.dump({'version': '0.1.12', 'built': 1}, open(os.path.join(data, 'installed.json'), 'w'))
+        info = a.detect()
+        self.assertEqual(info['version'], '0.1.12')
+        self.assertFalse(info['game_files'])
+        self.assertTrue(a.update_available(info, {'version': '0.2.0'}))
+        self.assertTrue(info['exe'].endswith('midtown-madness-3.sh'))
+
     def test_adopt_needs_an_install(self):
         with self.assertRaises(core.PortsError):
             core.adopt(self.p, ROOT, 'pinyon-shift')
@@ -179,9 +229,39 @@ class DetectTest(Base):
         self.assertIsNone(reskate['installed'])
 
 
+class EventTest(unittest.TestCase):
+    class Sink:
+        def __init__(self):
+            self.data, self.lines = {}, []
+
+        def update(self, **v):
+            self.data.update(v)
+
+        def line(self, text):
+            self.lines.append(text)
+
+    def test_mm3_events(self):
+        job = self.Sink()
+        self.assertTrue(core.mm3_event(job, '@step\t3\t5\tTranslating'))
+        self.assertEqual(job.data['stage'], '3/5 Translating')
+        core.mm3_event(job, '@progress\t0.25\tfile.c')
+        self.assertEqual((job.data['percent'], job.data['message']), (25.0, 'file.c'))
+        core.mm3_event(job, '@progress\t-1\tCompiling')
+        self.assertIsNone(job.data['percent'])
+        self.assertFalse(core.mm3_event(job, 'plain line'))
+
+    def test_steps(self):
+        job = self.Sink()
+        core.step_event(job, '==> Getting the game')
+        self.assertEqual(job.data['stage'], 'Getting the game')
+        core.step_event(job, '==> [10:00:00] Toolchain')
+        self.assertEqual(job.data['stage'], 'Toolchain')
+        core.step_event(job, '[5/10] cc x.c')
+        self.assertEqual(job.data['percent'], 50)
+
+
 class FakeAdapter(core.Adapter):
     supported = True
-    name = 'Fake'
 
     def detect(self):
         done = os.path.join(self.p['share'], 'fake', 'done')
