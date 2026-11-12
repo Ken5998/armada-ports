@@ -63,7 +63,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ArmadaPorts-run-${{ github.run_number }}
-          path: out/*
+          path: |
+            out/ArmadaPorts-v*.zip
+            out/ArmadaPorts-v*.zip.sha256
+            out/install.sh
           if-no-files-found: error
 
   # A pushed vX.Y.Z tag, or a manual run on main with "release" ticked, which creates the tag.
@@ -96,5 +99,5 @@ jobs:
           fi
           notes="notes/$tag.md"
           [[ -f $notes ]] || { echo "Write $notes first: it is the release's text." >&2; exit 1; }
-          gh release create "$tag" out/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+          gh release create "$tag" "out/ArmadaPorts-$tag.zip" "out/ArmadaPorts-$tag.zip.sha256" out/install.sh --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "Armada Ports $version" --notes-file "$notes"
