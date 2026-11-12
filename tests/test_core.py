@@ -112,6 +112,12 @@ class CatalogTest(unittest.TestCase):
             if port.get('adapter') in ('overlay', 'rusty-mcla'):
                 for key in ('data', 'script', 'game', 'files'):
                     self.assertIn(key, port['overlay'], port['id'])
+            # What the app shows: a text in English and Italian, and SteamGridDB images.
+            for key in ('about', 'rp6'):
+                self.assertTrue(port[key].get('en') and port[key].get('it'), (port['id'], key))
+            for kind in ('grid', 'hero', 'logo', 'wide'):
+                self.assertRegex(port['art'][kind], r'^https://cdn2\.steamgriddb\.com/[a-z_]+/[0-9a-f]+\.(png|jpe?g)$',
+                                 (port['id'], kind))
 
 
 class PayloadTest(Base):
@@ -398,3 +404,133 @@ class JobTest(Base):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class AppTest(Base):
+    """What the Game Mode app asks of the backend."""
+
+    def cli(self, *args):
+        out = subprocess.run([sys.executable, os.path.join(ROOT, 'py_modules', 'armadaports.py'), 'cli',
+                              '--catalog', ROOT, '--home', self.home, *args],
+                             capture_output=True, text=True, timeout=60)
+        return json.loads(out.stdout.strip().splitlines()[-1])
+
+    def test_overview_has_what_the_app_shows(self):
+        reply = self.cli('overview')
+        self.assertTrue(reply['ok'], reply)
+        port = reply['result']['ports'][0]
+        for key in ('about', 'rp6', 'upstream', 'art', 'art_urls', 'steam_name'):
+            self.assertIn(key, port)
+        self.assertTrue(port['art']['grid'].startswith(os.path.join(self.home, '.local/share/armada-ports/art')))
+
+    def test_errors_come_back_as_json(self):
+        reply = self.cli('cancel', 'no-such-port')
+        self.assertTrue(reply['ok'])     # nothing running: nothing to stop
+        reply = self.cli('uninstall', 'no-such-port')
+        self.assertFalse(reply['ok'])
+        self.assertIn('Unknown port', reply['error'])
+
+    def test_art_path_follows_the_link(self):
+        port = {'id': 'x', 'art': {'grid': 'https://cdn2.steamgriddb.com/grid/abc.png'}}
+        a = core.art_path(self.p, port, 'grid')
+        port['art']['grid'] = 'https://cdn2.steamgriddb.com/grid/def.jpg'
+        b = core.art_path(self.p, port, 'grid')
+        self.assertNotEqual(a, b)
+        self.assertTrue(b.endswith('.jpg'))
+        self.assertIsNone(core.art_path(self.p, port, 'hero'))
+
+    def test_fetch_art_keeps_what_it_has(self):
+        port = core.find_port(ROOT, 'pinyon-shift')
+        have = core.art_path(self.p, port, 'grid')
+        os.makedirs(os.path.dirname(have))
+        open(have, 'wb').write(b'png')
+        calls = []
+        original = core.download
+        core.download = lambda url, dst, *a, **k: calls.append(url) or (_ for _ in ()).throw(core.PortsError('offline'))
+        try:
+            art = core.fetch_art(self.p, ROOT, 'pinyon-shift')
+        finally:
+            core.download = original
+        self.assertEqual(art, {'grid': have})
+        self.assertEqual(len(calls), 3)    # hero, logo, wide tried; the failures are left out
+
+    def test_find_discs(self):
+        def make(path, size):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'wb') as f:
+                f.truncate(size)
+        make(os.path.join(self.home, 'Downloads', 'Game.iso'), 100 << 20)
+        make(os.path.join(self.home, 'Games', 'deep', 'er', 'Other.ISO'), 100 << 20)
+        make(os.path.join(self.home, 'Downloads', 'tiny.iso'), 1024)
+        make(os.path.join(self.home, '.hidden', 'Secret.iso'), 100 << 20)
+        make(os.path.join(self.home, 'bios', 'SCPH-70012.bin'), 4 << 20)
+        names = sorted(d['name'] for d in core.find_discs(self.home, mounts=()))
+        self.assertEqual(names, ['Game.iso', 'Other.ISO'])
+        self.assertEqual([d['name'] for d in core.find_discs(self.home, 'bios', mounts=())], ['SCPH-70012.bin'])
+
+    def test_list_folder(self):
+        os.makedirs(os.path.join(self.home, 'b'))
+        os.makedirs(os.path.join(self.home, 'A'))
+        open(os.path.join(self.home, 'x.iso'), 'w').close()
+        open(os.path.join(self.home, 'notes.txt'), 'w').close()
+        out = core.list_folder(self.home)
+        self.assertEqual([d['name'] for d in out['dirs']], ['A', 'b'])
+        self.assertEqual([f['name'] for f in out['files']], ['x.iso'])
+        with self.assertRaises(core.PortsError):
+            core.list_folder(os.path.join(self.home, 'missing'))
+
+    def test_install_app_copies_once_per_version(self):
+        plugin = os.path.join(self.home, 'plugin')
+        os.makedirs(os.path.join(plugin, 'app', 'art'))
+        for name in ('armada-ports', 'armada-ports.sh', 'art/grid.png'):
+            open(os.path.join(plugin, 'app', name), 'w').write('v1')
+        open(os.path.join(plugin, 'ports.json'), 'w').write('{"ports": []}')
+        dest = core.install_app(self.p, plugin, '0.3.0')
+        self.assertTrue(os.access(os.path.join(dest, 'armada-ports.sh'), os.X_OK))
+        self.assertTrue(os.path.isfile(os.path.join(dest, 'armadaports.py')))
+        self.assertTrue(os.path.isfile(os.path.join(dest, 'ports.json')))
+        open(os.path.join(plugin, 'app', 'armada-ports'), 'w').write('v2')
+        core.install_app(self.p, plugin, '0.3.0')
+        self.assertEqual(open(os.path.join(dest, 'armada-ports')).read(), 'v1')
+        core.install_app(self.p, plugin, '0.3.1')
+        self.assertEqual(open(os.path.join(dest, 'armada-ports')).read(), 'v2')
+        info = core.app_info(self.p, plugin, '0.3.1')
+        self.assertTrue(info['installed'])
+        self.assertEqual(info['art'], {'grid': os.path.join(dest, 'art', 'grid.png')})
+        self.assertIsNone(core.install_app(self.p, os.path.join(self.home, 'empty'), '0.3.1'))
+
+    def request(self, **body):
+        folder = core.bridge_dir(self.p, 'requests')
+        os.makedirs(folder, exist_ok=True)
+        body.setdefault('time', time.time())
+        with open(os.path.join(folder, f'{body["id"]}.json'), 'w') as f:
+            json.dump(body, f)
+
+    def test_bridge(self):
+        self.request(id='1-1', op='steam_status')
+        self.request(id='2-1', op='add_shortcut', port='pinyon-shift')   # not built: answered right away
+        self.request(id='3-1', op='remove_shortcut', appids=[123, 'x'])
+        self.request(id='4-1', op='steam_status', time=time.time() - 3600)   # too old
+        self.request(id='../../evil', op='steam_status')
+        taken = core.bridge_take(self.p, ROOT)
+        self.assertEqual([r['id'] for r in taken], ['1-1', '3-1'])
+        self.assertEqual(taken[1]['appids'], [123])
+        self.assertIn({'id': 'pinyon-shift', 'appids': []}, taken[0]['ports'])
+        refused = core.read_json(core.bridge_dir(self.p, 'responses', '2-1.json'))
+        self.assertFalse(refused['ok'])
+        self.assertIn('not built', refused['error'])
+        self.assertEqual(core.bridge_take(self.p, ROOT), [])
+        core.bridge_reply(self.p, '1-1', {'ok': True, 'result': {}})
+        self.assertTrue(core.read_json(core.bridge_dir(self.p, 'responses', '1-1.json'))['ok'])
+        with self.assertRaises(core.PortsError):
+            core.bridge_reply(self.p, '../x', {})
+
+    def test_read_image_only_reads_artwork(self):
+        art = os.path.join(self.p['root'], 'art', 'p', 'grid-1.png')
+        os.makedirs(os.path.dirname(art))
+        open(art, 'wb').write(b'\x89PNG')
+        self.assertEqual(core.read_image(self.p, art)['format'], 'png')
+        with self.assertRaises(core.PortsError):
+            core.read_image(self.p, self.p['state'])
+        with self.assertRaises(core.PortsError):
+            core.read_image(self.p, os.path.join(self.p['root'], 'art', '..', 'state.json'))

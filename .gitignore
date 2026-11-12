@@ -5,3 +5,6 @@ bin/
 out/
 __pycache__/
 *.py[cod]
+
+# Godot
+app/.godot/

@@ -1,85 +1,65 @@
-import {
-  ButtonItem,
-  ConfirmModal,
-  Field,
-  Navigation,
-  PanelSection,
-  PanelSectionRow,
-  ProgressBarWithInfo,
-  showModal,
-  staticClasses,
-} from "@decky/ui";
-import {
-  addEventListener,
-  callable,
-  definePlugin,
-  FileSelectionType,
-  openFilePicker,
-  removeEventListener,
-  toaster,
-} from "@decky/api";
+import { ButtonItem, Field, PanelSection, PanelSectionRow, Router, staticClasses } from "@decky/ui";
+import { addEventListener, callable, definePlugin, removeEventListener, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { FaGamepad } from "react-icons/fa";
 import { t } from "./i18n";
 
-type Release = { tag: string; version: string; page: string; commit?: string };
-type Installed = {
-  data: string;
-  version: string;
-  commit?: string;
-  built: boolean;
-  game_files: boolean;
-  exe: string;
-  start_dir: string;
-};
+// The ports are browsed, installed and played from the Armada Ports app, a game in the Steam
+// library. This plugin is what the app cannot be: a part of Steam. It puts the app (and the games
+// the app builds) in the library with their artwork at once, without restarting Steam, answers the
+// app's requests for that, tells about finished builds and new releases, and updates itself.
+
+type Art = Partial<Record<"grid" | "hero" | "logo" | "wide", string>>;
+type Shortcut = { port: string; name: string; exe: string; start_dir: string; art: Art };
 type Job = {
   id: string;
-  action: "install" | "update";
   state: "running" | "done" | "failed" | "cancelled";
   stage: string;
   percent: number | null;
-  message: string;
-  log: string;
   add_to_steam?: boolean;
-  exe?: string;
-  start_dir?: string;
   name?: string;
 };
 type Port = {
   id: string;
   name: string;
-  game: string;
-  page: string;
-  supported: boolean;
-  needs: string[];
-  disc: string;
-  build_minutes: [number, number | null] | null;
-  space_gb: number | null;
-  free_gb: number | null;
-  installed: Installed | null;
-  latest: Release | null;
   update: boolean;
+  latest: { version: string } | null;
   job: Job | null;
-  launcher_dir: string | null;
   steam_appid: number | null;
   legacy_appid: number | null;
+  installed: { built: boolean } | null;
 };
-type State = { home: string; ports: Port[]; checked: number | null; plugin: { version: string } | null; current: string };
+type State = { ports: Port[]; checked: number | null; plugin: { version: string } | null; current: string };
+type AppInfo = {
+  installed: boolean;
+  name: string;
+  exe: string;
+  start_dir: string;
+  art: Art;
+  appid: number | null;
+  offered: boolean;
+  version: string;
+};
+type BridgeRequest =
+  | { id: string; op: "steam_status"; ports: { id: string; appids: number[] }[] }
+  | { id: string; op: "add_shortcut"; port: string; shortcut: Shortcut }
+  | { id: string; op: "remove_shortcut"; appids: number[] };
 type Reply<T> = { ok: true; result: T } | { ok: false; error: string };
+type BridgeReply = { ok: boolean; result?: unknown; error?: string };
 type PluginDownload = { path: string; version: string; sha256: string };
 
 const getState = callable<[], Reply<State>>("get_state");
 const checkUpdates = callable<[refresh: boolean], Reply<{ news: unknown[] }>>("check_updates");
-const adopt = callable<[port: string, folder: string], Reply<Port>>("adopt");
-const startJob = callable<[port: string, action: string, iso: string, bios: string, addToSteam: boolean], Reply<Job>>(
-  "start_job",
-);
-const cancelJob = callable<[port: string], Reply<Job | null>>("cancel_job");
-const uninstall = callable<[port: string], Reply<string[]>>("uninstall");
 const setSteam = callable<[port: string, appid: number], Reply<null>>("set_steam");
+const appInfo = callable<[], Reply<AppInfo>>("app_info");
+const rememberApp = callable<[appid: number], Reply<null>>("remember_app");
+const shortcutFor = callable<[port: string], Reply<Shortcut>>("shortcut_for");
+const readImage = callable<[path: string], Reply<{ data: string; format: string }>>("read_image");
+const bridgeReply = callable<[id: string, reply: BridgeReply], Reply<null>>("bridge_reply");
 const downloadPlugin = callable<[], Reply<PluginDownload>>("download_plugin");
 
 const NAME = "Armada Ports";
+const ART_TYPES: Record<keyof Art, number> = { grid: 0, hero: 1, logo: 2, wide: 3 };
 
 type SteamApps = {
   AddShortcut(name: string, exe: string, startDir: string, launchOptions: string): Promise<number>;
@@ -87,31 +67,108 @@ type SteamApps = {
   SetShortcutExe(appid: number, exe: string): void;
   SetShortcutStartDir(appid: number, dir: string): void;
   RemoveShortcut(appid: number): void;
+  SetCustomArtworkForApp(appid: number, data: string, format: string, assetType: number): Promise<unknown>;
+  RunGame(gameId: string, launchSource: string, a: number, b: number): void;
 };
+type Overview = { m_gameid?: string; gameid?: string };
 const steamApps = () => (window as unknown as { SteamClient: { Apps: SteamApps } }).SteamClient.Apps;
 const appStore = () =>
-  (window as unknown as { appStore?: { GetAppOverviewByAppID(id: number): unknown | null } }).appStore;
+  (window as unknown as { appStore?: { GetAppOverviewByAppID(id: number): Overview | null } }).appStore;
 
-function inSteam(port: Port): boolean {
-  return [port.steam_appid, port.legacy_appid].some((id) => !!id && !!appStore()?.GetAppOverviewByAppID(id));
+const inLibrary = (appid: number | null | undefined) => !!appid && !!appStore()?.GetAppOverviewByAppID(appid);
+
+async function setArtwork(appid: number, art: Art) {
+  for (const kind of Object.keys(ART_TYPES) as (keyof Art)[]) {
+    const path = art[kind];
+    if (!path) continue;
+    const image = await readImage(path);
+    if (image.ok) await steamApps().SetCustomArtworkForApp(appid, image.result.data, image.result.format, ART_TYPES[kind]);
+  }
 }
 
 // A non-Steam game, added through Steam itself: it shows up at once, no restart needed.
-async function addToSteam(portId: string, name: string, exe: string, startDir: string): Promise<boolean> {
+async function addShortcut(name: string, exe: string, startDir: string, art: Art): Promise<number> {
+  const apps = steamApps();
+  const appid = await apps.AddShortcut(name, exe, startDir, "");
+  if (!appid) throw new Error(t.steamFailed);
+  apps.SetShortcutName(appid, name);
+  apps.SetShortcutExe(appid, `"${exe}"`);
+  apps.SetShortcutStartDir(appid, `"${startDir}"`);
   try {
-    const apps = steamApps();
-    const appid = await apps.AddShortcut(name, exe, startDir, "");
-    if (!appid) return false;
-    apps.SetShortcutName(appid, name);
-    apps.SetShortcutExe(appid, `"${exe}"`);
-    apps.SetShortcutStartDir(appid, `"${startDir}"`);
-    await setSteam(portId, appid);
-    toaster.toast({ title: NAME, body: t.addedToSteam(name) });
-    return true;
-  } catch (e) {
-    toaster.toast({ title: NAME, body: `${t.steamFailed} ${e}` });
-    return false;
+    await setArtwork(appid, art);
+  } catch {
+    // the game is in the library; artwork is a nicety
   }
+  return appid;
+}
+
+async function addPort(shortcut: Shortcut): Promise<number> {
+  const appid = await addShortcut(shortcut.name, shortcut.exe, shortcut.start_dir, shortcut.art);
+  await setSteam(shortcut.port, appid);
+  return appid;
+}
+
+async function answer(req: BridgeRequest): Promise<BridgeReply> {
+  switch (req.op) {
+    case "steam_status": {
+      const result: Record<string, number> = {};
+      for (const port of req.ports) result[port.id] = port.appids.find(inLibrary) ?? 0;
+      return { ok: true, result };
+    }
+    case "add_shortcut": {
+      const appid = await addPort(req.shortcut);
+      toaster.toast({ title: NAME, body: t.addedToSteam(req.shortcut.name) });
+      return { ok: true, result: { appid } };
+    }
+    case "remove_shortcut": {
+      for (const appid of req.appids) if (inLibrary(appid)) steamApps().RemoveShortcut(appid);
+      return { ok: true, result: null };
+    }
+  }
+  return { ok: false, error: "unknown request" };
+}
+
+async function onBridgeRequest(req: BridgeRequest) {
+  let reply: BridgeReply;
+  try {
+    reply = await answer(req);
+  } catch (e) {
+    reply = { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+  await bridgeReply(req.id, reply);
+}
+
+// Puts the app in the library the first time (and when asked again from the panel).
+async function ensureApp(ask = false): Promise<number | null> {
+  const reply = await appInfo();
+  if (!reply.ok || !reply.result.installed) return null;
+  const app = reply.result;
+  if (inLibrary(app.appid)) return app.appid;
+  if (app.offered && !ask) return null;
+  try {
+    const appid = await addShortcut(app.name, app.exe, app.start_dir, app.art);
+    await rememberApp(appid);
+    toaster.toast({ title: NAME, body: t.appAdded });
+    return appid;
+  } catch (e) {
+    await rememberApp(0);
+    toaster.toast({ title: NAME, body: `${t.steamFailed} ${e}` });
+    return null;
+  }
+}
+
+function gameIdOf(appid: number): string {
+  const overview = appStore()?.GetAppOverviewByAppID(appid);
+  const known = overview?.m_gameid ?? overview?.gameid;
+  if (known) return String(known);
+  return (BigInt(appid) * BigInt(4294967296) + BigInt(0x02000000)).toString();
+}
+
+async function openApp() {
+  const appid = await ensureApp(true);
+  if (!appid) return;
+  Router.CloseSideMenus();
+  steamApps().RunGame(gameIdOf(appid), "", -1, 100);
 }
 
 // Decky's own installer: it asks for confirmation, replaces the plugin and reloads it.
@@ -122,245 +179,28 @@ function deckyInstall(update: PluginDownload) {
   return backend.call("utilities/install_plugin", `file://${update.path}`, NAME, update.version, update.sha256, UPDATE);
 }
 
-// What the panel showed, kept outside the components so it comes back as it was when Steam
-// rebuilds the panel (for example after a dialog).
-const kept: { state?: State; open?: string } = {};
-
-function statusLine(port: Port): string {
-  if (port.job?.state === "running") return t.working(port.job.stage);
-  if (!port.supported) return port.latest ? `${t.launcherOnly} · ${t.latest(port.latest.version)}` : t.launcherOnly;
-  if (!port.installed) return t.notInstalled;
-  if (!port.installed.built) return t.unfinished;
-  if (port.update && port.latest) return t.updateTo(port.latest.version);
-  return t.installedV(port.installed.version || "");
-}
-
-function versionLine(port: Port): string {
-  const i = port.installed;
-  if (!i) return "";
-  const mine = [i.version && t.version(i.version), i.commit && t.commit(i.commit)].filter(Boolean).join(" · ");
-  const latest = port.latest
-    ? [port.latest.version, port.latest.commit && t.commit(port.latest.commit)].filter(Boolean).join(" · ")
-    : "";
-  return latest ? `${mine} — ${t.newest(latest)}` : mine;
-}
-
-async function pick(type: FileSelectionType, start: string, extensions?: string[]): Promise<string | null> {
-  try {
-    const res = await openFilePicker(type, start, type === FileSelectionType.FILE, true, undefined, extensions);
-    return res.realpath || res.path;
-  } catch {
-    return null; // closed without a choice
-  }
-}
-
-function confirm(title: string, body: string, ok: string, danger = false): Promise<boolean> {
-  return new Promise((resolve) => {
-    showModal(
-      <ConfirmModal
-        strTitle={title}
-        strDescription={body}
-        strOKButtonText={ok}
-        strCancelButtonText={t.cancel}
-        bDestructiveWarning={danger}
-        onOK={() => resolve(true)}
-        onCancel={() => resolve(false)}
-      />,
-    );
-  });
-}
-
-function PortDetail({ port, home, reload }: { port: Port; home: string; reload: () => Promise<void> }) {
-  const job = port.job;
-  const running = job?.state === "running";
-
-  const report = <T,>(reply: Reply<T>): T | undefined => {
-    if (!reply.ok) {
-      toaster.toast({ title: port.name, body: reply.error });
-      return undefined;
-    }
-    return reply.result;
-  };
-
-  const build = async (action: "install" | "update", needIso: boolean) => {
-    let iso = "";
-    let bios = "";
-    if (needIso) {
-      iso = (await pick(FileSelectionType.FILE, home, ["iso", "ISO"])) ?? "";
-      if (!iso) return;
-      if (port.needs.includes("bios")) {
-        bios = (await pick(FileSelectionType.FILE, home)) ?? "";
-        if (!bios) return;
-      }
-    }
-    const time = port.build_minutes ? t.buildTime(port.build_minutes[0], port.build_minutes[1]) : t.buildLong;
-    const space = port.space_gb && action === "install" ? ` ${t.space(port.space_gb, port.free_gb)}` : "";
-    if (!(await confirm(t.startTitle(port.name), `${time}${space} ${t.startBody}`, t.start))) return;
-    report(await startJob(port.id, action, iso, bios, true));
-    await reload();
-  };
-
-  const follow = async () => {
-    const found = await adopt(port.id, "");
-    if (found.ok) return reload();
-    toaster.toast({ title: port.name, body: t.notFound });
-    const folder = await pick(FileSelectionType.FOLDER, home);
-    if (!folder) return;
-    report(await adopt(port.id, folder));
-    await reload();
-  };
-
-  const remove = async () => {
-    if (!(await confirm(t.uninstallTitle(port.name), t.uninstallBody(port.name), t.uninstall, true))) return;
-    if (!report(await uninstall(port.id))) return;
-    for (const id of [port.steam_appid, port.legacy_appid]) {
-      try {
-        if (id && appStore()?.GetAppOverviewByAppID(id)) steamApps().RemoveShortcut(id);
-      } catch {
-        // already gone
-      }
-    }
-    toaster.toast({ title: NAME, body: t.uninstalled(port.name) });
-    await reload();
-  };
-
-  const rows = [];
-  rows.push(
-    <PanelSectionRow key="about">
-      <Field description={[port.game, port.disc].filter(Boolean).join(" · ")} />
-    </PanelSectionRow>,
-  );
-
-  if (running) {
-    rows.push(
-      <PanelSectionRow key="progress">
-        <ProgressBarWithInfo
-          indeterminate={job.percent === null}
-          nProgress={job.percent ?? 0}
-          sOperationText={job.stage}
-          description={job.message}
-        />
-      </PanelSectionRow>,
-      <PanelSectionRow key="stop">
-        <ButtonItem layout="below" onClick={async () => (report(await cancelJob(port.id)), reload())}>
-          {t.stop}
-        </ButtonItem>
-      </PanelSectionRow>,
-    );
-  } else if (job?.state === "failed") {
-    rows.push(
-      <PanelSectionRow key="failed">
-        <Field description={`${t.failed(job.message)} ${t.log(job.log)}`} />
-      </PanelSectionRow>,
-    );
-  }
-
-  if (!port.supported) {
-    rows.push(
-      <PanelSectionRow key="launcher">
-        <Field description={port.latest ? `${t.launcherOnly}. ${t.latest(port.latest.version)}.` : t.launcherOnly} />
-      </PanelSectionRow>,
-    );
-  } else if (!port.installed && !running) {
-    rows.push(
-      <PanelSectionRow key="install">
-        <ButtonItem layout="below" description={t.installHint} onClick={() => build("install", true)}>
-          {t.install}
-        </ButtonItem>
-      </PanelSectionRow>,
-      <PanelSectionRow key="adopt">
-        <ButtonItem layout="below" description={t.alreadyHint} onClick={follow}>
-          {t.alreadyInstalled}
-        </ButtonItem>
-      </PanelSectionRow>,
-    );
-  } else if (port.installed) {
-    rows.push(
-      <PanelSectionRow key="version">
-        <Field description={versionLine(port)} />
-      </PanelSectionRow>,
-    );
-    if (!running && !port.installed.built) {
-      rows.push(
-        <PanelSectionRow key="finish">
-          <ButtonItem layout="below" onClick={() => build("install", !port.installed!.game_files)}>
-            {t.rebuild}
-          </ButtonItem>
-        </PanelSectionRow>,
-      );
-    } else if (!running && port.update && port.latest) {
-      rows.push(
-        <PanelSectionRow key="update">
-          <ButtonItem layout="below" onClick={() => build("update", !port.installed!.game_files)}>
-            {t.update(port.latest.version)}
-          </ButtonItem>
-        </PanelSectionRow>,
-      );
-    }
-    if (port.installed.built) {
-      rows.push(
-        <PanelSectionRow key="steam">
-          {inSteam(port) ? (
-            <Field description={t.inSteam} />
-          ) : (
-            <ButtonItem
-              layout="below"
-              onClick={async () => {
-                await addToSteam(port.id, port.name, port.installed!.exe, port.installed!.start_dir);
-                await reload();
-              }}
-            >
-              {t.addToSteam}
-            </ButtonItem>
-          )}
-        </PanelSectionRow>,
-      );
-    }
-  }
-
-  rows.push(
-    <PanelSectionRow key="notes">
-      <ButtonItem layout="below" onClick={() => Navigation.NavigateToExternalWeb(port.latest?.page ?? port.page)}>
-        {port.latest ? t.releaseNotes : t.project}
-      </ButtonItem>
-    </PanelSectionRow>,
-  );
-  if (port.installed && !running) {
-    rows.push(
-      <PanelSectionRow key="uninstall">
-        <ButtonItem layout="below" onClick={remove}>
-          {t.uninstall}
-        </ButtonItem>
-      </PanelSectionRow>,
-    );
-  }
-  return <>{rows}</>;
+function jobLine(job: Job): string {
+  return job.percent === null ? job.stage : `${job.stage} · ${Math.round(job.percent)}%`;
 }
 
 function Content() {
-  const [state, setStateNow] = useState<State | undefined>(kept.state);
-  const [open, setOpenNow] = useState<string | undefined>(kept.open);
-  const setOpen = (id: string | undefined) => {
-    kept.open = id;
-    setOpenNow(id);
-  };
+  const [state, setState] = useState<State>();
+  const [app, setApp] = useState<AppInfo>();
 
   const reload = async () => {
-    const reply = await getState();
-    if (reply.ok) {
-      kept.state = reply.result;
-      setStateNow(reply.result);
-    } else toaster.toast({ title: NAME, body: reply.error });
+    const [s, a] = await Promise.all([getState(), appInfo()]);
+    if (s.ok) setState(s.result);
+    else toaster.toast({ title: NAME, body: s.error });
+    if (a.ok) setApp(a.result);
   };
 
   useEffect(() => {
     reload();
   }, []);
 
-  // While a job runs its progress is read every couple of seconds.
   const busy = state?.ports.some((p) => p.job?.state === "running");
   useEffect(() => {
-    const timer = setInterval(reload, busy ? 2000 : 15000);
+    const timer = setInterval(reload, busy ? 3000 : 15000);
     return () => clearInterval(timer);
   }, [busy]);
 
@@ -368,8 +208,7 @@ function Content() {
     const reply = await checkUpdates(true);
     if (!reply.ok) toaster.toast({ title: NAME, body: reply.error });
     await reload();
-    if (reply.ok && kept.state && !kept.state.ports.some((p) => p.update) && !kept.state.plugin)
-      toaster.toast({ title: NAME, body: t.upToDate });
+    if (reply.ok && reply.result.news.length === 0) toaster.toast({ title: NAME, body: t.upToDate });
   };
 
   const updatePlugin = async () => {
@@ -379,25 +218,40 @@ function Content() {
   };
 
   if (!state) return null;
+  const running = state.ports.filter((p) => p.job?.state === "running");
+  const updates = state.ports.filter((p) => p.update && p.latest);
   const checked = state.checked ? new Date(state.checked * 1000).toLocaleString() : null;
 
   return (
     <>
-      <PanelSection title={t.ports}>
-        {state.ports.map((port) => [
-          <PanelSectionRow key={port.id}>
-            <ButtonItem
-              layout="below"
-              label={port.name}
-              description={statusLine(port)}
-              onClick={() => setOpen(open === port.id ? undefined : port.id)}
-            >
-              {open === port.id ? "▲" : "▼"}
-            </ButtonItem>
-          </PanelSectionRow>,
-          open === port.id && <PortDetail key={`${port.id}-detail`} port={port} home={state.home} reload={reload} />,
-        ])}
+      <PanelSection>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={openApp} disabled={!app?.installed}>
+            {inLibrary(app?.appid) ? t.openApp : t.addApp}
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <Field description={app?.installed ? t.blurb : t.noApp} />
+        </PanelSectionRow>
       </PanelSection>
+      {running.length > 0 && (
+        <PanelSection title={t.building}>
+          {running.map((p) => (
+            <PanelSectionRow key={p.id}>
+              <Field label={p.name} description={jobLine(p.job as Job)} />
+            </PanelSectionRow>
+          ))}
+        </PanelSection>
+      )}
+      {updates.length > 0 && (
+        <PanelSection title={t.updates}>
+          {updates.map((p) => (
+            <PanelSectionRow key={p.id}>
+              <Field label={p.name} description={t.newVersion(p.latest!.version)} />
+            </PanelSectionRow>
+          ))}
+        </PanelSection>
+      )}
       <PanelSection title={t.about}>
         {state.plugin && (
           <PanelSectionRow>
@@ -426,8 +280,17 @@ async function onJobFinished(job: Job) {
     toaster.toast({ title: NAME, body: t.ready(name) });
     const reply = await getState();
     const port = reply.ok ? reply.result.ports.find((p) => p.id === job.id) : undefined;
-    if (job.add_to_steam && job.exe && job.start_dir && port && !inSteam(port))
-      await addToSteam(job.id, name, job.exe, job.start_dir);
+    if (job.add_to_steam && port && !inLibrary(port.steam_appid) && !inLibrary(port.legacy_appid)) {
+      const shortcut = await shortcutFor(job.id);
+      if (shortcut.ok) {
+        try {
+          await addPort(shortcut.result);
+          toaster.toast({ title: NAME, body: t.addedToSteam(shortcut.result.name) });
+        } catch (e) {
+          toaster.toast({ title: NAME, body: `${t.steamFailed} ${e}` });
+        }
+      }
+    }
   } else if (job.state === "failed") {
     toaster.toast({ title: NAME, body: t.failedToast(name) });
   }
@@ -455,8 +318,11 @@ function showNewPanel() {
 
 export default definePlugin(() => {
   setTimeout(showNewPanel, 1000);
+  // Give Steam a moment after starting before touching the library.
+  setTimeout(() => ensureApp(false), 8000);
   const finished = addEventListener<[Job]>("job_finished", onJobFinished);
   const update = addEventListener<[{ name: string; version: string }]>("update_available", onUpdate);
+  const bridge = addEventListener<[BridgeRequest]>("bridge_request", onBridgeRequest);
   return {
     name: NAME,
     titleView: <div className={staticClasses.Title}>{NAME}</div>,
@@ -466,6 +332,7 @@ export default definePlugin(() => {
     onDismount() {
       removeEventListener("job_finished", finished);
       removeEventListener("update_available", update);
+      removeEventListener("bridge_request", bridge);
     },
   };
 });

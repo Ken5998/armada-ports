@@ -45,7 +45,7 @@ done < <(unzip -Z1 "$zip")
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 unzip -q "$zip" -d "$tmp"
-for need in main.py plugin.json package.json dist/index.js py_modules/armadaports.py ports.json; do
+for need in main.py plugin.json package.json dist/index.js py_modules/armadaports.py ports.json app/armada-ports app/armada-ports.sh; do
     [[ -f "$tmp/$name/$need" ]] || die "The ZIP has no $name/$need."
 done
 if find "$tmp/$name" -type l | grep -q .; then

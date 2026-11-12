@@ -7,7 +7,9 @@ import decky
 
 import armadaports as core
 
-WATCH_EVERY = 10         # seconds between looks at the jobs
+TICK = 1                 # seconds between looks for requests from the app
+ALIVE_EVERY = 5          # seconds between touches of bridge/alive
+JOBS_EVERY = 10          # seconds between looks at the jobs
 FIRST_CHECK_AFTER = 30   # seconds after loading before the first update check
 
 
@@ -53,20 +55,23 @@ class Plugin:
                 await decky.emit('update_available', news)
         return reply
 
-    async def adopt(self, port: str, folder: str = ''):
-        return await _run(core.adopt, _paths(), _plugin_dir(), port, folder)
-
-    async def start_job(self, port: str, action: str, iso: str = '', bios: str = '', add_to_steam: bool = True):
-        return await _run(core.start_job, _paths(), _plugin_dir(), port, action, iso, bios, add_to_steam)
-
-    async def cancel_job(self, port: str):
-        return await _run(core.cancel_job, _paths(), port)
-
-    async def uninstall(self, port: str):
-        return await _run(core.uninstall, _paths(), _plugin_dir(), port)
-
     async def set_steam(self, port: str, appid: int):
         return await _run(core.set_steam, _paths(), port, appid)
+
+    async def app_info(self):
+        return await _run(core.app_info, _paths(), _plugin_dir(), _plugin_version())
+
+    async def remember_app(self, appid: int):
+        return await _run(core.remember_app, _paths(), appid)
+
+    async def shortcut_for(self, port: str):
+        return await _run(core.shortcut_for, _paths(), _plugin_dir(), port)
+
+    async def read_image(self, path: str):
+        return await _run(core.read_image, _paths(), path)
+
+    async def bridge_reply(self, req_id: str, reply: dict):
+        return await _run(core.bridge_reply, _paths(), req_id, reply)
 
     async def download_plugin(self):
         """Fetches the newer plugin ZIP; the panel then hands it to Decky's installer."""
@@ -81,22 +86,37 @@ class Plugin:
         return await _run(work)
 
     async def _watch(self):
-        """Tells the panel when a job ends, and looks for new releases every few hours."""
-        await asyncio.sleep(FIRST_CHECK_AFTER)
-        next_check = 0.0
+        """Answers the app (Steam shortcuts), tells the panel when a job ends, and looks for new
+        releases every few hours."""
+        start = time.time()
+        next_alive = next_jobs = 0.0
+        next_check = start + FIRST_CHECK_AFTER
         while True:
             try:
-                for job in await asyncio.to_thread(core.finished_unannounced, _paths()):
-                    await decky.emit('job_finished', job)
-                if time.time() >= next_check:
-                    next_check = time.time() + core.CHECK_MAX_AGE
+                now = time.time()
+                if now >= next_alive:
+                    next_alive = now + ALIVE_EVERY
+                    await asyncio.to_thread(core.bridge_alive, _paths())
+                for req in await asyncio.to_thread(core.bridge_take, _paths(), _plugin_dir()):
+                    await decky.emit('bridge_request', req)
+                if now >= next_jobs:
+                    next_jobs = now + JOBS_EVERY
+                    for job in await asyncio.to_thread(core.finished_unannounced, _paths()):
+                        await decky.emit('job_finished', job)
+                if now >= next_check:
+                    next_check = now + core.CHECK_MAX_AGE
                     await self.check_updates(False)
             except Exception:  # noqa: BLE001 - the watcher must keep going
                 decky.logger.exception('Armada Ports watcher')
-            await asyncio.sleep(WATCH_EVERY)
+            await asyncio.sleep(TICK)
 
     async def _main(self):
         decky.logger.info('Armada Ports loaded')
+        try:
+            where = await asyncio.to_thread(core.install_app, _paths(), _plugin_dir(), _plugin_version())
+            decky.logger.info(f'Armada Ports app in {where}')
+        except Exception:  # noqa: BLE001 - the plugin still works without the app
+            decky.logger.exception('Could not install the Armada Ports app')
         self.watcher = asyncio.get_running_loop().create_task(self._watch())
 
     async def _unload(self):

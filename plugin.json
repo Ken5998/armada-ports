@@ -5,7 +5,7 @@
   "api_version": 1,
   "publish": {
     "tags": ["armadaos", "arm64", "ports", "launcher"],
-    "description": "The ARM64 game ports for ArmadaOS in one place: install them from your own disc image, keep them up to date and add them to Steam, all from Game Mode.",
+    "description": "The ARM64 game ports for ArmadaOS in one app you open from Game Mode: browse them with their artwork, install them from your own disc image, keep them up to date and play. The plugin puts the app and the games in Steam.",
     "image": ""
   }
 }

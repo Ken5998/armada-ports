@@ -1,7 +1,8 @@
 """Armada Ports: the catalog of ARM64 ports, what of it is installed, their GitHub releases and
 the jobs that install or update a port.
 
-The Decky backend (main.py) imports this module. A job runs it again as a separate program,
+The Game Mode app runs it as `python3 armadaports.py cli COMMAND ...` and reads the JSON it prints;
+the Decky backend (main.py) imports it. A job runs it again as a separate program,
 `python3 armadaports.py run JOB.json`, started with systemd-run in the user's session so that a
 build of an hour survives the Quick Access menu closing, a game starting or Decky reloading.
 The job writes its progress to JOB.json; the panel reads it from there.
@@ -125,6 +126,7 @@ def ssl_context():
 
 
 def open_url(url, timeout=30):
+    import urllib.parse
     import urllib.request
     request = urllib.request.Request(url, headers={'User-Agent': 'armada-ports',
                                                    'Accept': 'application/vnd.github+json'})
@@ -132,7 +134,8 @@ def open_url(url, timeout=30):
     try:
         return urllib.request.urlopen(request, timeout=timeout, **kwargs)
     except OSError as e:
-        raise PortsError(f'Could not reach GitHub: {getattr(e, "reason", e)}') from e
+        host = urllib.parse.urlsplit(url).hostname or url
+        raise PortsError(f'Could not reach {host}: {getattr(e, "reason", e)}') from e
 
 
 def github_json(url, cache_dir=None):
@@ -229,6 +232,7 @@ def latest_release(repo, asset_name, cache_dir=None):
         'size': asset.get('size', 0) if asset else 0,
         'page': rel.get('html_url') or f'https://github.com/{repo}/releases/tag/{tag}',
         'published': rel.get('published_at') or '',
+        'notes': str(rel.get('body') or '')[:4000],
     }
 
 
@@ -729,6 +733,12 @@ def port_view(p, port, state):
         'launcher_dir': a.launcher_dir if a.launcher_installed() else None,
         'steam_appid': entry.get('steam_appid'),
         'legacy_appid': None,
+        'steam_name': a.name,
+        'about': port.get('about') or {},
+        'rp6': port.get('rp6') or {},
+        'upstream': port.get('upstream') or {},
+        'art': {kind: art_path(p, port, kind) for kind in (port.get('art') or {})},
+        'art_urls': port.get('art') or {},
     }
     if info and info.get('exe'):
         view['legacy_appid'] = shortcut_app_id(info['exe'], a.name)
@@ -822,6 +832,344 @@ def uninstall(p, plugin_dir, port_id):
     state['ports'].pop(port_id, None)
     save_state(p, state)
     return removed
+
+
+# --- The Game Mode app ----------------------------------------------------------------------
+
+def art_path(p, port, kind):
+    """Where a port's SteamGridDB image is kept. The name carries a hash of the link, so a link
+    changed in ports.json downloads the new image instead of showing the old one."""
+    url = (port.get('art') or {}).get(kind)
+    if not url:
+        return None
+    ext = os.path.splitext(url.split('?')[0])[1].lower()
+    if ext not in ('.png', '.jpg', '.jpeg', '.webp'):
+        ext = '.png'
+    return os.path.join(p['root'], 'art', port['id'], f'{kind}-{hashlib.sha1(url.encode()).hexdigest()[:10]}{ext}')
+
+
+def fetch_art(p, plugin_dir, port_id, kinds=None):
+    """The port's images on disk, downloading the missing ones; an image that cannot be fetched
+    is left out (the app and Steam then go without it)."""
+    port = find_port(plugin_dir, port_id)
+    out = {}
+    for kind in kinds or (port.get('art') or {}):
+        path = art_path(p, port, kind)
+        if not path:
+            continue
+        if not os.path.isfile(path):
+            try:
+                download(port['art'][kind], path)
+            except (PortsError, OSError):
+                continue
+        out[kind] = path
+    return out
+
+
+DISC_PLACES = ('Downloads', 'Games', 'games', 'ISO', 'ISOs', 'iso', 'ROMs', 'Roms', 'roms', 'Emulation',
+               'Desktop', 'Documents')
+DISC_MOUNTS = ('/run/media/*', '/run/media/*/*', '/media/*', '/media/*/*', '/mnt/*', '/var/mnt/*')
+DISC_KINDS = {
+    # what is asked for: (file endings, smallest size, largest size)
+    'iso': (('.iso', '.xiso'), 64 << 20, None),
+    'bios': (('.bin', '.rom'), 1 << 20, 16 << 20),
+}
+
+
+def find_discs(home, kind='iso', limit=200, max_dirs=1500, mounts=DISC_MOUNTS):
+    """Disc images (or BIOS files) in the usual places at home, on SD cards and USB drives, then
+    anywhere else at home, the newest first, so the app can offer them without a file browser.
+    Each place is looked through up to max_dirs folders, three levels down."""
+    endings, smallest, largest = DISC_KINDS[kind]
+    roots = [os.path.join(home, place) for place in DISC_PLACES]
+    for pattern in mounts:
+        roots += sorted(glob.glob(pattern))
+    roots.append(home)
+    found, seen = {}, set()
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        base_depth = root.rstrip('/').count('/')
+        visited = 0
+        for here, dirs, files in os.walk(root):
+            real = os.path.realpath(here)
+            depth = here.rstrip('/').count('/') - base_depth
+            if real in seen or visited > max_dirs:
+                dirs[:] = []
+                continue
+            seen.add(real)
+            visited += 1
+            # Hidden folders (Steam, caches, the ports' own data) and deep trees are skipped.
+            dirs[:] = [d for d in dirs if not d.startswith('.')] if depth < 3 else []
+            for name in files:
+                if not name.lower().endswith(endings):
+                    continue
+                path = os.path.join(here, name)
+                try:
+                    st = os.stat(path)
+                except OSError:
+                    continue
+                if st.st_size < smallest or (largest and st.st_size > largest):
+                    continue
+                found[os.path.realpath(path)] = {'path': path, 'name': name, 'size': st.st_size,
+                                                 'mtime': st.st_mtime, 'folder': here}
+    return sorted(found.values(), key=lambda d: -d['mtime'])[:limit]
+
+
+def list_folder(path, kind='iso'):
+    """One folder for the app's file browser: its subfolders and the files of the kind asked."""
+    endings = DISC_KINDS[kind][0]
+    path = os.path.abspath(os.path.expanduser(path or '~'))
+    try:
+        names = sorted(os.listdir(path), key=str.lower)
+    except OSError as e:
+        raise PortsError(f'Cannot open {path}: {e.strerror}') from e
+    dirs, files = [], []
+    for name in names:
+        if name.startswith('.'):
+            continue
+        full = os.path.join(path, name)
+        if os.path.isdir(full):
+            dirs.append({'name': name, 'path': full})
+        elif name.lower().endswith(endings):
+            try:
+                size = os.path.getsize(full)
+            except OSError:
+                continue
+            files.append({'name': name, 'path': full, 'size': size})
+    parent = os.path.dirname(path)
+    return {'path': path, 'parent': parent if parent != path else None, 'dirs': dirs, 'files': files}
+
+
+def log_tail(p, port_id, lines=12):
+    """The last lines of the port's last job log."""
+    job = job_status(p, port_id)
+    log = (job or {}).get('log')
+    if not log or not os.path.isfile(log):
+        return []
+    with open(log, 'rb') as f:
+        f.seek(0, os.SEEK_END)
+        f.seek(max(0, f.tell() - 16384))
+        text = f.read().decode('utf-8', errors='replace')
+    return [line for line in text.splitlines() if line.strip()][-lines:]
+
+
+def cli(argv):
+    """The app's way in: one command, one JSON answer on stdout ({ok, result} or {ok, error})."""
+    import argparse
+    ap = argparse.ArgumentParser(prog='armadaports.py cli')
+    ap.add_argument('--catalog', default=os.path.dirname(os.path.abspath(__file__)),
+                    help='folder with ports.json')
+    ap.add_argument('--home', default=os.path.expanduser('~'))
+    sub = ap.add_subparsers(dest='cmd', required=True)
+    sub.add_parser('overview')
+    c = sub.add_parser('check')
+    c.add_argument('--refresh', action='store_true')
+    c.add_argument('--current')
+    c = sub.add_parser('start')
+    c.add_argument('port')
+    c.add_argument('action', choices=('install', 'update'))
+    c.add_argument('--iso', default='')
+    c.add_argument('--bios', default='')
+    c.add_argument('--no-steam', action='store_true')
+    for name in ('cancel', 'uninstall', 'art', 'tail'):
+        sub.add_parser(name).add_argument('port')
+    c = sub.add_parser('adopt')
+    c.add_argument('port')
+    c.add_argument('--folder', default='')
+    c = sub.add_parser('discs')
+    c.add_argument('--kind', default='iso', choices=sorted(DISC_KINDS))
+    c = sub.add_parser('folder')
+    c.add_argument('path', nargs='?', default='')
+    c.add_argument('--kind', default='iso', choices=sorted(DISC_KINDS))
+    args = ap.parse_args(argv)
+    p = paths(args.home)
+    catalog = args.catalog
+    try:
+        if args.cmd == 'overview':
+            result = overview(p, catalog)
+        elif args.cmd == 'check':
+            result = check_updates(p, catalog, args.refresh, args.current)
+        elif args.cmd == 'start':
+            result = start_job(p, catalog, args.port, args.action, args.iso or None, args.bios or None,
+                               not args.no_steam)
+        elif args.cmd == 'cancel':
+            result = cancel_job(p, args.port)
+        elif args.cmd == 'uninstall':
+            result = uninstall(p, catalog, args.port)
+        elif args.cmd == 'art':
+            result = fetch_art(p, catalog, args.port)
+        elif args.cmd == 'tail':
+            result = {'lines': log_tail(p, args.port), 'job': job_status(p, args.port)}
+        elif args.cmd == 'adopt':
+            result = adopt(p, catalog, args.port, args.folder)
+        elif args.cmd == 'discs':
+            result = find_discs(p['home'], args.kind)
+        else:
+            result = list_folder(args.path or p['home'], args.kind)
+        reply = {'ok': True, 'result': result}
+    except PortsError as e:
+        reply = {'ok': False, 'error': str(e)}
+    except Exception as e:  # noqa: BLE001 - the app shows every failure as a message
+        reply = {'ok': False, 'error': f'{type(e).__name__}: {e}'}
+    print(json.dumps(reply))
+    return 0 if reply['ok'] else 1
+
+
+# --- The app's copy and its bridge to Steam ---------------------------------------------------
+
+APP_BINARY = 'armada-ports'
+APP_SCRIPT = 'armada-ports.sh'
+ART_TYPES = {'grid': 0, 'hero': 1, 'logo': 2, 'wide': 3}   # SteamClient.Apps.SetCustomArtworkForApp
+REQUEST_ID = re.compile(r'^[0-9]{1,20}-[0-9]{1,6}$')
+
+
+def app_dir(p):
+    return os.path.join(p['root'], 'app')
+
+
+def install_app(p, plugin_dir, version):
+    """Copies the app from the plugin into ~/.local/share/armada-ports/app (the Steam shortcut points
+    there, so it stays put across plugin updates) with the backend and catalog next to it. Only
+    when the plugin's version changed; returns the app's folder, or None if the plugin has no app."""
+    src = os.path.join(plugin_dir, 'app')
+    if not os.path.isfile(os.path.join(src, APP_BINARY)):
+        return None
+    dest = app_dir(p)
+    stamp = os.path.join(dest, '.version')
+    try:
+        with open(stamp) as f:
+            if f.read().strip() == version and os.path.isfile(os.path.join(dest, APP_BINARY)):
+                return dest
+    except OSError:
+        pass
+    tmp = f'{dest}.new-{os.getpid()}'
+    old = f'{dest}.old-{os.getpid()}'
+    shutil.rmtree(tmp, ignore_errors=True)
+    shutil.copytree(src, tmp)
+    shutil.copy2(os.path.abspath(__file__), os.path.join(tmp, 'armadaports.py'))
+    shutil.copy2(os.path.join(plugin_dir, 'ports.json'), os.path.join(tmp, 'ports.json'))
+    for name in (APP_BINARY, APP_SCRIPT):
+        if os.path.exists(os.path.join(tmp, name)):
+            os.chmod(os.path.join(tmp, name), 0o755)
+    write(os.path.join(tmp, '.version'), version)
+    if os.path.exists(dest):
+        os.rename(dest, old)
+    os.rename(tmp, dest)
+    shutil.rmtree(old, ignore_errors=True)
+    return dest
+
+
+def app_info(p, plugin_dir, version):
+    """What the plugin needs to put the app in Steam."""
+    dest = app_dir(p)
+    state = load_state(p)
+    art = {kind: os.path.join(dest, 'art', f'{kind}.png') for kind in ART_TYPES}
+    return {
+        'installed': os.path.isfile(os.path.join(dest, APP_BINARY)),
+        'name': 'Armada Ports',
+        'exe': os.path.join(dest, APP_SCRIPT),
+        'start_dir': dest,
+        'art': {kind: path for kind, path in art.items() if os.path.isfile(path)},
+        'appid': state.get('app_appid'),
+        'offered': bool(state.get('app_offered')),
+        'version': version,
+    }
+
+
+def remember_app(p, appid):
+    state = load_state(p)
+    state['app_appid'] = int(appid) if appid else None
+    state['app_offered'] = True
+    save_state(p, state)
+
+
+def bridge_dir(p, *parts):
+    return os.path.join(p['root'], 'bridge', *parts)
+
+
+def bridge_alive(p):
+    """The app looks at this file's time to know the plugin is there to answer."""
+    path = bridge_dir(p, 'alive')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w') as f:
+        f.write(str(int(time.time())))
+
+
+def bridge_take(p, plugin_dir, max_age=60):
+    """The app's waiting requests, each taken once (its file is removed). Stale or broken ones are
+    dropped. A request gets what the plugin's panel side needs to carry it out."""
+    folder = bridge_dir(p, 'requests')
+    out = []
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return out
+    for name in names:
+        if not name.endswith('.json'):
+            continue
+        path = os.path.join(folder, name)
+        req = read_json(path)
+        try:
+            os.remove(path)
+        except OSError:
+            continue
+        if not isinstance(req, dict) or not REQUEST_ID.match(str(req.get('id', ''))) or \
+                time.time() - float(req.get('time') or 0) > max_age:
+            continue
+        try:
+            req.update(bridge_prepare(p, plugin_dir, req))
+        except PortsError as e:
+            bridge_reply(p, req['id'], {'ok': False, 'error': str(e)})
+            continue
+        out.append(req)
+    return out
+
+
+def bridge_prepare(p, plugin_dir, req):
+    op = req.get('op')
+    if op == 'steam_status':
+        state = load_state(p)
+        return {'ports': [{'id': port['id'], 'appids': [a for a in (view['steam_appid'], view['legacy_appid']) if a]}
+                          for port in load_catalog(plugin_dir)
+                          for view in [port_view(p, port, state)]]}
+    if op == 'add_shortcut':
+        return {'shortcut': shortcut_for(p, plugin_dir, str(req.get('port', '')))}
+    if op == 'remove_shortcut':
+        ids = [int(a) for a in req.get('appids') or [] if str(a).isdigit()]
+        return {'appids': ids}
+    raise PortsError(f'Unknown request: {op}')
+
+
+def shortcut_for(p, plugin_dir, port_id):
+    """Name, program, folder and artwork for a port's Steam shortcut."""
+    port = find_port(plugin_dir, port_id)
+    a = adapter_for(p, port)
+    info = a.detect() if a.supported else None
+    if not info or not info.get('built') or not info.get('exe'):
+        raise PortsError(f'{port["name"]} is not built yet.')
+    art = fetch_art(p, plugin_dir, port_id, [k for k in ART_TYPES if k in (port.get('art') or {})])
+    return {'port': port_id, 'name': a.name, 'exe': info['exe'], 'start_dir': info.get('start_dir') or
+            os.path.dirname(info['exe']), 'art': art}
+
+
+def bridge_reply(p, req_id, reply):
+    if not REQUEST_ID.match(str(req_id)):
+        raise PortsError('Bad request id.')
+    write(bridge_dir(p, 'responses', f'{req_id}.json'), json.dumps(reply))
+
+
+def read_image(p, path):
+    """An image from the app's or the ports' artwork, base64 for Steam's SetCustomArtworkForApp."""
+    import base64
+    real = os.path.realpath(path)
+    allowed = [os.path.realpath(os.path.join(p['root'], 'art')), os.path.realpath(os.path.join(app_dir(p), 'art'))]
+    if not any(real.startswith(a + os.sep) for a in allowed) or not os.path.isfile(real):
+        raise PortsError('Not an artwork file.')
+    with open(real, 'rb') as f:
+        data = f.read()
+    ext = os.path.splitext(real)[1].lower().lstrip('.')
+    return {'data': base64.b64encode(data).decode(), 'format': 'jpg' if ext in ('jpg', 'jpeg') else ext}
 
 
 # --- Jobs ---------------------------------------------------------------------------------
@@ -1090,5 +1438,7 @@ if __name__ == '__main__':
     if len(sys.argv) == 3 and sys.argv[1] == 'run':
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         sys.exit(run_job(sys.argv[2]))
-    print('usage: armadaports.py run JOB.json', file=sys.stderr)
+    if len(sys.argv) >= 2 and sys.argv[1] == 'cli':
+        sys.exit(cli(sys.argv[2:]))
+    print('usage: armadaports.py run JOB.json | armadaports.py cli COMMAND ...', file=sys.stderr)
     sys.exit(2)

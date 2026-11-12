@@ -22,7 +22,7 @@ env:
 jobs:
   check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
         with:
@@ -32,8 +32,22 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tests -v
-          shellcheck install.sh scripts/*.sh
+          shellcheck install.sh scripts/*.sh app/*.sh
           python3 -c 'import json; json.load(open("ports.json"))'
+
+      - name: Godot cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/armada-ports-godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ hashFiles('scripts/build-app.sh') }}
+
+      - name: App build (linux-arm64) and check
+        run: |
+          set -euo pipefail
+          bash scripts/build-app.sh
+          bash scripts/check-app.sh
 
       - name: Frontend typecheck, build and package
         run: |

@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "ports": [
     {
       "id": "pinyon-shift",
@@ -9,9 +9,33 @@
       "asset": "PinyonShift-Launcher-linux-arm64.tar.gz",
       "launcher": "PinyonShiftLauncher",
       "adapter": "pinyon",
-      "needs": ["iso"],
+      "needs": [
+        "iso"
+      ],
       "disc": "USA retail disc (MS-2505)",
-      "build_minutes": [25, 60]
+      "build_minutes": [
+        25,
+        60
+      ],
+      "sgdb": 19719,
+      "upstream": {
+        "name": "arcanite24/pinyon-shift",
+        "url": "https://github.com/arcanite24/pinyon-shift"
+      },
+      "about": {
+        "en": "Forza Horizon for Xbox 360, recompiled into a native program. The launcher builds it on the handheld from your USA disc image, with patches for ARM64 and Adreno.",
+        "it": "Forza Horizon per Xbox 360 ricompilato in un programma nativo. Il launcher lo compila sulla console dal tuo disco USA, con le patch per ARM64 e Adreno."
+      },
+      "rp6": {
+        "en": "Steady 60 fps with Turnip Devel and the recommended settings.",
+        "it": "60 fps stabili con Turnip Devel e le impostazioni consigliate."
+      },
+      "art": {
+        "grid": "https://cdn2.steamgriddb.com/grid/c43043335d711ee1590cfcba87ed0009.png",
+        "wide": "https://cdn2.steamgriddb.com/grid/64191c4803d6f66484e9fc2e965ee9d2.png",
+        "hero": "https://cdn2.steamgriddb.com/hero/5e2c35af180fd995203d1bcf1eaaf576.png",
+        "logo": "https://cdn2.steamgriddb.com/logo/f91f4d061c663e30e058cb62bd7e4ec5.png"
+      }
     },
     {
       "id": "fifa-street",
@@ -21,8 +45,13 @@
       "asset": "FifaStreet-Launcher-linux-arm64.tar.gz",
       "launcher": "fifastreet-launcher",
       "adapter": "overlay",
-      "needs": ["iso"],
-      "build_minutes": [60, null],
+      "needs": [
+        "iso"
+      ],
+      "build_minutes": [
+        60,
+        null
+      ],
       "space_gb": 30,
       "overlay": {
         "data": "FifaStreet-arm64",
@@ -33,6 +62,25 @@
           "FS_ADD_TO_STEAM": "0"
         },
         "commit_updates": true
+      },
+      "sgdb": 5257940,
+      "upstream": {
+        "name": "ReStreet",
+        "url": "https://github.com/samuelit0davila/fifa-street-pc-port"
+      },
+      "about": {
+        "en": "FIFA Street (2012) recompiled from the Xbox 360 with ReXGlue. Street football, tricks and panna, running natively on ARM64.",
+        "it": "FIFA Street (2012) ricompilato dall'Xbox 360 con ReXGlue. Calcio di strada, trick e tunnel, nativo su ARM64."
+      },
+      "rp6": {
+        "en": "About 60 fps, steady.",
+        "it": "Circa 60 fps, stabili."
+      },
+      "art": {
+        "grid": "https://cdn2.steamgriddb.com/grid/2fb32ee97983c0b45a77ed7ff618bd94.png",
+        "wide": "https://cdn2.steamgriddb.com/grid/8bdd863fc8e3e69020099bda7e67052f.png",
+        "hero": "https://cdn2.steamgriddb.com/hero/75341373eb85cb53e7abe2b42ed38f74.jpg",
+        "logo": "https://cdn2.steamgriddb.com/logo/780261c4b9a55cd803080619d0cc3e11.png"
       }
     },
     {
@@ -42,9 +90,14 @@
       "repo": "Ken5998/saints-reborn-arm64",
       "asset": "SaintsReborn-Launcher-linux-arm64.tar.gz",
       "adapter": "overlay",
-      "needs": ["iso"],
+      "needs": [
+        "iso"
+      ],
       "launcher": "saintsreborn-launcher",
-      "build_minutes": [60, null],
+      "build_minutes": [
+        60,
+        null
+      ],
       "space_gb": 40,
       "overlay": {
         "data": "SaintsReborn-arm64",
@@ -55,6 +108,25 @@
           "SR_ADD_TO_STEAM": "0"
         },
         "commit_updates": true
+      },
+      "sgdb": 35143,
+      "upstream": {
+        "name": "whompay/SaintsReborn",
+        "url": "https://github.com/whompay/SaintsReborn"
+      },
+      "about": {
+        "en": "Saints Row (2006) recompiled from the Xbox 360. Stilwater, the Saints and the whole story, with GPU Tweaks that keep the handheld cool.",
+        "it": "Saints Row (2006) ricompilato dall'Xbox 360. Stilwater, i Saints e tutta la storia, con i GPU Tweaks che tengono la console fresca."
+      },
+      "rp6": {
+        "en": "Stable 30 fps (the game logic runs at 30).",
+        "it": "30 fps stabili (la logica del gioco gira a 30)."
+      },
+      "art": {
+        "grid": "https://cdn2.steamgriddb.com/grid/6518ad0c59b7e9c7f81c9ac142a1a0e0.png",
+        "wide": "https://cdn2.steamgriddb.com/grid/184f4f8254c44db183a17ada89772964.png",
+        "hero": "https://cdn2.steamgriddb.com/hero/1a21d8c9bbb99bca627434dbf4b98d01.jpg",
+        "logo": "https://cdn2.steamgriddb.com/logo/66c20ea00d1b74e934d5935f8a3d1413.png"
       }
     },
     {
@@ -64,10 +136,34 @@
       "repo": "Ken5998/mm3-recomp-arm64",
       "asset": "MidtownMadness3-Launcher-linux-arm64.tar.gz",
       "adapter": "mm3",
-      "needs": ["iso"],
+      "needs": [
+        "iso"
+      ],
       "launcher": "mm3-launcher",
-      "build_minutes": [30, 60],
-      "space_gb": 6
+      "build_minutes": [
+        30,
+        60
+      ],
+      "space_gb": 6,
+      "sgdb": 5267138,
+      "upstream": {
+        "name": "MattSG/mm3-recomp",
+        "url": "https://github.com/MattSG/mm3-recomp"
+      },
+      "about": {
+        "en": "Midtown Madness 3 from the original Xbox, statically recompiled and ported to ARM64 with DXVK and SDL. Paris and Washington, cop chases and blitz races.",
+        "it": "Midtown Madness 3 dell'Xbox originale, ricompilato staticamente e portato su ARM64 con DXVK e SDL. Parigi e Washington, inseguimenti e gare blitz."
+      },
+      "rp6": {
+        "en": "Plays well; a race can occasionally hang while loading.",
+        "it": "Si gioca bene; ogni tanto una gara può bloccarsi al caricamento."
+      },
+      "art": {
+        "grid": "https://cdn2.steamgriddb.com/grid/a005601453d614aa599dfd7f02b0e944.png",
+        "wide": "https://cdn2.steamgriddb.com/grid/93ca7297868ec130c99f26157ceaecc4.png",
+        "hero": "https://cdn2.steamgriddb.com/hero/7d59940f728eff0da111dd90376b439e.png",
+        "logo": "https://cdn2.steamgriddb.com/logo/b01f0160ec94664939d21a51535470d5.png"
+      }
     },
     {
       "id": "rusty-mcla",
@@ -76,7 +172,9 @@
       "repo": "Ken5998/rusty-mcla-arm64",
       "asset": "RustyMCLA-Launcher-linux-arm64.tar.gz",
       "adapter": "rusty-mcla",
-      "needs": ["iso"],
+      "needs": [
+        "iso"
+      ],
       "launcher": "rusty-mcla-launcher",
       "steam_name": "Midnight Club: Los Angeles",
       "disc": "Complete Edition",
@@ -87,6 +185,118 @@
         "game": "game/mcla.sh",
         "files": "disc.txt",
         "release_file": "build/release"
+      },
+      "sgdb": 5253393,
+      "upstream": {
+        "name": "holdmysocks/rusty-mcla",
+        "url": "https://github.com/holdmysocks/rusty-mcla"
+      },
+      "about": {
+        "en": "Midnight Club: Los Angeles on a new engine written in Rust, with the data read from your Xbox 360 disc. Native ARM64 build on Vulkan.",
+        "it": "Midnight Club: Los Angeles su un motore nuovo scritto in Rust, con i dati letti dal tuo disco Xbox 360. Build nativa ARM64 su Vulkan."
+      },
+      "rp6": {
+        "en": "30 to 40 fps at 720p.",
+        "it": "Da 30 a 40 fps a 720p."
+      },
+      "art": {
+        "grid": "https://cdn2.steamgriddb.com/grid/433aa82aa5ffd59b1fbd5068e380bb77.png",
+        "wide": "https://cdn2.steamgriddb.com/grid/cb1f0987d03d4efaa767eb9f49054914.png",
+        "hero": "https://cdn2.steamgriddb.com/hero/fed81424fe722056a097c5fb8c1bcac8.png",
+        "logo": "https://cdn2.steamgriddb.com/logo/4e154dfcbc093f28b47a9bc43c091e62.png"
+      }
+    },
+    {
+      "id": "fh2-recompiled",
+      "name": "FH2 Recompiled",
+      "game": "Forza Horizon 2 (Xbox 360)",
+      "repo": "Ken5998/fh2-recompiled-arm64",
+      "asset": "FH2Recompiled-Launcher-linux-arm64.tar.gz",
+      "adapter": "overlay",
+      "needs": [
+        "iso"
+      ],
+      "launcher": "fh2-launcher",
+      "steam_name": "Forza Horizon 2",
+      "disc": "USA disc (title 4D530AA4)",
+      "build_minutes": [
+        60,
+        null
+      ],
+      "space_gb": 25,
+      "overlay": {
+        "data": "FH2Recompiled-arm64",
+        "script": "scripts/build.sh",
+        "game": "game/fh2.sh",
+        "files": "disc.iso",
+        "env": {
+          "FS_ADD_TO_STEAM": "0"
+        }
+      },
+      "sgdb": 5246839,
+      "upstream": {
+        "name": "FH2 Recompiled",
+        "url": "https://github.com/Ken5998/fh2-recompiled-arm64"
+      },
+      "about": {
+        "en": "Forza Horizon 2 for Xbox 360 recompiled with ReXGlue, with a native renderer. The launcher builds it on the handheld from your disc image.",
+        "it": "Forza Horizon 2 per Xbox 360 ricompilato con ReXGlue, con renderer nativo. Il launcher lo compila sulla console dal tuo disco."
+      },
+      "rp6": {
+        "en": "Steady 30 fps.",
+        "it": "30 fps stabili."
+      },
+      "art": {
+        "grid": "https://cdn2.steamgriddb.com/grid/983a389763a10769e5fecfcd184c5f0d.png",
+        "wide": "https://cdn2.steamgriddb.com/grid/4cad28e8c00ade2f5898b91240c0048b.png",
+        "hero": "https://cdn2.steamgriddb.com/hero/182340c28a4350468fce307ff1bab29e.jpg",
+        "logo": "https://cdn2.steamgriddb.com/logo/020ea2e7e3f2cec1ca4af57682211297.png"
+      }
+    },
+    {
+      "id": "skate3-recomp",
+      "name": "Skate 3 Recomp",
+      "game": "Skate 3 (Xbox 360)",
+      "repo": "Ken5998/skate3-recomp-arm64",
+      "asset": "Skate3Recomp-Launcher-linux-arm64.tar.gz",
+      "adapter": "overlay",
+      "needs": [
+        "iso"
+      ],
+      "launcher": "skate3-launcher",
+      "steam_name": "Skate 3",
+      "build_minutes": [
+        60,
+        null
+      ],
+      "space_gb": 25,
+      "overlay": {
+        "data": "Skate3Recomp-arm64",
+        "script": "scripts/build.sh",
+        "game": "game-dist/skate3.sh",
+        "files": "game-dist/game/default.xex",
+        "env": {
+          "FS_ADD_TO_STEAM": "0"
+        }
+      },
+      "sgdb": 5249006,
+      "upstream": {
+        "name": "mchughalex/skate3recomp",
+        "url": "https://github.com/mchughalex/skate3recomp"
+      },
+      "about": {
+        "en": "Skate 3 for Xbox 360 recompiled with ReXGlue and a native Vulkan renderer. The launcher builds it on the handheld from your disc image.",
+        "it": "Skate 3 per Xbox 360 ricompilato con ReXGlue e un renderer Vulkan nativo. Il launcher lo compila sulla console dal tuo disco."
+      },
+      "rp6": {
+        "en": "New: first tests on the handheld are under way.",
+        "it": "Nuovo: i primi test sulla console sono in corso."
+      },
+      "art": {
+        "grid": "https://cdn2.steamgriddb.com/grid/cb5afcadcac972f1c6d743c96936ebe3.png",
+        "wide": "https://cdn2.steamgriddb.com/grid/c19ebafae8a1383f03699253faa3e0ee.jpg",
+        "hero": "https://cdn2.steamgriddb.com/hero/c255c05246a081654a0267cbb725f5a7.png",
+        "logo": "https://cdn2.steamgriddb.com/logo/a5ae86de28cfea2be65951dbb04567ee.png"
       }
     },
     {
@@ -96,7 +306,29 @@
       "repo": "Ken5998/road-trip-arm64",
       "asset": "RoadTrip-Launcher-linux-arm64.tar.gz",
       "adapter": null,
-      "needs": ["iso", "bios"]
+      "needs": [
+        "iso",
+        "bios"
+      ],
+      "sgdb": 5263590,
+      "upstream": {
+        "name": "ARMSX2",
+        "url": "https://github.com/ARMSX2/ARMSX2"
+      },
+      "about": {
+        "en": "Road Trip Adventure (Choro Q HG 2) for PS2 on the ARMSX2 emulator. The launcher downloads ARMSX2 and sets it up with your disc image and BIOS.",
+        "it": "Road Trip Adventure (Choro Q HG 2) per PS2 sull'emulatore ARMSX2. Il launcher scarica ARMSX2 e lo prepara con il tuo disco e il BIOS."
+      },
+      "rp6": {
+        "en": "Runs very well.",
+        "it": "Funziona benissimo."
+      },
+      "art": {
+        "grid": "https://cdn2.steamgriddb.com/grid/fa76a34b61498cc37bc2f1ebb782390b.jpg",
+        "wide": "https://cdn2.steamgriddb.com/grid/28740de68b782e26f14294bbcbe52a6d.png",
+        "hero": "https://cdn2.steamgriddb.com/hero/2411c29e96bbcd139c9f3329c140a348.png",
+        "logo": "https://cdn2.steamgriddb.com/logo/33c74d44a8c8399fd69963ecfae26b75.png"
+      }
     },
     {
       "id": "reskate",
@@ -105,7 +337,26 @@
       "repo": "Ken5998/reskate-arm64",
       "asset": "ReSkate-armadaos.zip",
       "adapter": null,
-      "needs": []
+      "needs": [],
+      "sgdb": 5479288,
+      "upstream": {
+        "name": "ReSkate",
+        "url": "https://github.com/Dingo-Shenanigans/ReSkate"
+      },
+      "about": {
+        "en": "ReSkate makes EA's skate. playable offline. This build is tuned for Proton and FEX on ArmadaOS.",
+        "it": "ReSkate rende skate. di EA giocabile offline. Questa build è ottimizzata per Proton e FEX su ArmadaOS."
+      },
+      "rp6": {
+        "en": "Around 54 fps.",
+        "it": "Circa 54 fps."
+      },
+      "art": {
+        "grid": "https://cdn2.steamgriddb.com/grid/ae5faa628a6b0ea7c4d6a322638184ce.png",
+        "wide": "https://cdn2.steamgriddb.com/grid/eb1062cf648396ef30927c62f5dc6fac.png",
+        "hero": "https://cdn2.steamgriddb.com/hero/62ff0b685d439994bb91355e521425cb.png",
+        "logo": "https://cdn2.steamgriddb.com/logo/bfc2a86b7fb49331abb12d52facbd666.png"
+      }
     },
     {
       "id": "azimuth",
@@ -114,7 +365,26 @@
       "repo": "Ken5998/azimuth-arm64",
       "asset": "azimuth-turnip-{version}.tar.gz",
       "adapter": null,
-      "needs": []
+      "needs": [],
+      "sgdb": 5246839,
+      "upstream": {
+        "name": "Azimuth",
+        "url": "https://github.com/Ken5998/azimuth-arm64"
+      },
+      "about": {
+        "en": "A Turnip driver build with the fixes Azimuth (Forza Horizon 2 for PC) needs on Adreno: host memory emulation and a shader crash fix.",
+        "it": "Una build del driver Turnip con le correzioni che servono ad Azimuth (Forza Horizon 2 su PC) su Adreno: emulazione della memoria host e un fix per i crash degli shader."
+      },
+      "rp6": {
+        "en": "20 to 24 fps in game.",
+        "it": "Da 20 a 24 fps in gioco."
+      },
+      "art": {
+        "grid": "https://cdn2.steamgriddb.com/grid/f683615bacf8ae37a0d5e542f3f4355c.png",
+        "wide": "https://cdn2.steamgriddb.com/grid/b00a5d1bdcdf5d92324e818f6616b4d4.png",
+        "hero": "https://cdn2.steamgriddb.com/hero/ae5fe3f5efbc6aadbaba339e34abd017.png",
+        "logo": "https://cdn2.steamgriddb.com/logo/020ea2e7e3f2cec1ca4af57682211297.png"
+      }
     }
   ]
 }

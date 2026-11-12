@@ -1,7 +1,7 @@
 {
   "name": "armada-ports",
-  "version": "0.2.2",
-  "description": "Decky plugin for ArmadaOS: install, update and add to Steam the ARM64 game ports, from Game Mode.",
+  "version": "0.3.0",
+  "description": "Armada Ports for ArmadaOS: a Game Mode app to browse, install, update and play the ARM64 game ports, and the Decky plugin that puts them in Steam.",
   "type": "module",
   "scripts": {
     "build": "rollup -c",
