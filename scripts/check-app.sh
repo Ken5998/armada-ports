@@ -5,7 +5,7 @@
 #   scripts/check-app.sh [GODOT]     # default: the editor scripts/build-app.sh downloaded
 set -euo pipefail
 cd "$(dirname "$0")/.."
-godot="${1:-$(ls "${XDG_CACHE_HOME:-$HOME/.cache}"/armada-ports-godot/*/Godot_v*_linux.* 2>/dev/null | head -n 1)}"
+godot="${1:-$(find "${XDG_CACHE_HOME:-$HOME/.cache}/armada-ports-godot" -name 'Godot_v*_linux.*' \( -type f -o -type l \) 2>/dev/null | sort | head -n 1)}"
 [[ -x $godot ]] || { echo "no Godot editor: run scripts/build-app.sh first" >&2; exit 1; }
 tmp="$(mktemp -d)"
 pid=""
