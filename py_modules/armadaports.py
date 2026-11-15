@@ -236,6 +236,16 @@ def latest_release(repo, asset_name, cache_dir=None):
     }
 
 
+def latest_for(port, cache_dir=None):
+    """What the newest version of a port is: its newest launcher release, or for a port that has no
+    launcher (and so no releases) only its repository, whose main the adapter compares commits with."""
+    if port.get('asset'):
+        return latest_release(port['repo'], port['asset'], cache_dir)
+    page = f'https://github.com/{port["repo"]}'
+    return {'tag': '', 'version': '', 'url': None, 'sha256': None, 'size': 0, 'page': f'{page}/commits/main',
+            'published': '', 'notes': ''}
+
+
 def git_head(repo_url):
     """The commit main points at now, or None offline."""
     try:
@@ -500,9 +510,14 @@ class GitOverlay(Adapter):
     def repo_url(self):
         return f'https://github.com/{self.port["repo"]}'
 
+    @property
+    def overlay(self):
+        """The git clone of the port's repository whose build script runs."""
+        return os.path.join(self.data, 'overlay')
+
     def overlay_commit(self):
         try:
-            out = subprocess.run(['git', '-C', os.path.join(self.data, 'overlay'), 'rev-parse', 'HEAD'],
+            out = subprocess.run(['git', '-C', self.overlay, 'rev-parse', 'HEAD'],
                                  capture_output=True, text=True, timeout=10)
         except (OSError, subprocess.TimeoutExpired):
             return None
@@ -539,10 +554,16 @@ class GitOverlay(Adapter):
             'version': self.installed_version() or '',
             'commit': commit or '',
             'built': os.path.isfile(game),
-            'game_files': os.path.exists(os.path.join(self.data, self.cfg['files'])),
+            'game_files': self.game_files(),
             'exe': game,
             'start_dir': os.path.dirname(game),
         }
+
+    def game_files(self):
+        """Whether a build can go on without the disc image ("files" is one path or a list of them,
+        any of which will do)."""
+        files = self.cfg['files']
+        return any(os.path.exists(os.path.join(self.data, f)) for f in ([files] if isinstance(files, str) else files))
 
     def extra_latest(self):
         if not self.cfg.get('commit_updates'):
@@ -568,9 +589,8 @@ class GitOverlay(Adapter):
     def env(self):
         return dict(os.environ, **self.cfg.get('env', {}))
 
-    def build(self, job, iso, bios):
-        overlay = os.path.join(self.data, 'overlay')
-        job.stage('Updating the scripts and patches')
+    def update_overlay(self, job):
+        overlay = self.overlay
         if os.path.isdir(os.path.join(overlay, '.git')):
             job.run(['git', '-C', overlay, 'fetch', '--depth', '50', 'origin', 'main'])
             job.run(['git', '-C', overlay, 'reset', '--hard', '-q', 'FETCH_HEAD'])
@@ -578,11 +598,19 @@ class GitOverlay(Adapter):
             os.makedirs(self.data, exist_ok=True)
             shutil.rmtree(overlay, ignore_errors=True)
             job.run(['git', 'clone', '-q', '--depth', '50', self.repo_url, overlay])
-        if not iso and not os.path.exists(os.path.join(self.data, self.cfg['files'])):
+
+    def build_args(self, job, iso):
+        """What the build script is given after its own path."""
+        return [iso or '-', self.data]
+
+    def build(self, job, iso, bios):
+        job.stage('Updating the scripts and patches')
+        self.update_overlay(job)
+        if not iso and not self.game_files():
             raise PortsError('The game files are not there yet: pick your disc image.')
         job.stage(f'Building {self.port["name"]}')
-        job.run(['bash', os.path.join(overlay, self.cfg['script']), iso or '-', self.data], env=self.env(),
-                parse=step_event)
+        job.run(['bash', os.path.join(self.overlay, self.cfg['script']), *self.build_args(job, iso)],
+                env=self.env(), parse=step_event)
 
     def remove(self):
         return [self.data] if os.path.isdir(self.data) else []
@@ -614,6 +642,73 @@ class RustyMcla(GitOverlay):
                     MCLA_FPS_CAP=fps if fps in ('0', '30', '60') else '60',
                     MCLA_RENDER_SCALE=f'{min(max(scale, 50), 100) / 100:.2f}',
                     MCLA_ADD_TO_STEAM='0')
+
+
+class Fh1(GitOverlay):
+    """Forza Horizon ReImagined: build.sh takes the disc image and the Title Update 4 package, or "-"
+    to keep what the last build used, or "none" to build the disc's version (as the launcher does)."""
+
+    def build_args(self, job, iso):
+        update = job.data.get('update')
+        if update:
+            tu = update
+        elif os.path.islink(os.path.join(self.data, 'title-update')):
+            tu = '-'
+        else:
+            tu = 'none'
+        return [iso or '-', tu, self.data]
+
+
+class Infamous(GitOverlay):
+    """inFAMOUS Reborn has no launcher: build.sh is run from a clone of its repository. A build made
+    by hand from a clone elsewhere keeps that clone (where its CMake build points: another one would
+    change every compile command and rebuild the game from scratch, hours on the handheld)."""
+
+    def own_clone(self):
+        """The clone an earlier build ran from, as its CMake cache tells, or None."""
+        cache = os.path.join(self.data, 'inFAMOUSreborn', 'infamous-recomp', 'build-arm64', 'CMakeCache.txt')
+        try:
+            with open(cache, errors='replace') as f:
+                for line in f:
+                    if line.startswith('CMAKE_TOOLCHAIN_FILE:'):
+                        toolchain = line.split('=', 1)[1].strip()
+                        break
+                else:
+                    return None
+        except OSError:
+            return None
+        repo = os.path.dirname(os.path.dirname(toolchain))
+        if not os.path.isfile(os.path.join(repo, 'scripts', 'build.sh')) or not os.path.isdir(os.path.join(repo, '.git')):
+            return None
+        try:
+            out = subprocess.run(['git', '-C', repo, 'remote', 'get-url', 'origin'], capture_output=True,
+                                 text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        url = out.stdout.strip().lower()
+        return repo if url.rstrip('/').removesuffix('.git').endswith(self.port['repo'].lower()) else None
+
+    @property
+    def overlay(self):
+        own = os.path.join(self.data, 'overlay')
+        if os.path.isdir(os.path.join(own, '.git')):
+            return own
+        return self.own_clone() or own
+
+    def update_overlay(self, job):
+        overlay = self.overlay
+        if overlay == os.path.join(self.data, 'overlay'):
+            return super().update_overlay(job)
+        # Someone's own clone: brought to main without throwing away what was changed in it (git
+        # refuses when a local change is in the way).
+        job.line(f'Using the clone the last build ran from: {overlay}')
+        job.run(['git', '-C', overlay, 'fetch', 'origin', 'main'])
+        job.run(['git', '-C', overlay, 'checkout', '-q', '-B', 'main', 'FETCH_HEAD'])
+
+    def adopt(self, folder):
+        if folder:
+            raise PortsError('Build it from the app, or with scripts/build.sh as its README says.')
+        return {}
 
 
 class Mm3(Adapter):
@@ -697,7 +792,8 @@ def step_event(job, line):
     return False
 
 
-ADAPTERS = {'pinyon': Pinyon, 'overlay': GitOverlay, 'rusty-mcla': RustyMcla, 'mm3': Mm3}
+ADAPTERS = {'pinyon': Pinyon, 'overlay': GitOverlay, 'rusty-mcla': RustyMcla, 'mm3': Mm3, 'fh1': Fh1,
+            'infamous': Infamous}
 
 
 def adapter_for(p, port, state=None):
@@ -723,6 +819,7 @@ def port_view(p, port, state):
         'supported': a.supported,
         'needs': port.get('needs', []),
         'disc': port.get('disc', ''),
+        'title_update': port.get('title_update', ''),
         'build_minutes': port.get('build_minutes'),
         'space_gb': port.get('space_gb'),
         'free_gb': None,
@@ -767,7 +864,7 @@ def check_updates(p, plugin_dir, refresh=False, current=None):
     errors = []
     for port in load_catalog(plugin_dir):
         try:
-            latest = latest_release(port['repo'], port.get('asset'), p['cache'])
+            latest = latest_for(port, p['cache'])
             latest.update(adapter_for(p, port, state).extra_latest())
             state['latest'][port['id']] = latest
         except PortsError as e:
@@ -870,17 +967,25 @@ DISC_PLACES = ('Downloads', 'Games', 'games', 'ISO', 'ISOs', 'iso', 'ROMs', 'Rom
                'Desktop', 'Documents')
 DISC_MOUNTS = ('/run/media/*', '/run/media/*/*', '/media/*', '/media/*/*', '/mnt/*', '/var/mnt/*')
 DISC_KINDS = {
-    # what is asked for: (file endings, smallest size, largest size)
-    'iso': (('.iso', '.xiso'), 64 << 20, None),
-    'bios': (('.bin', '.rom'), 1 << 20, 16 << 20),
+    # what is asked for: (file endings, name beginnings, smallest size, largest size)
+    'iso': (('.iso', '.xiso'), None, 64 << 20, None),
+    'bios': (('.bin', '.rom'), None, 1 << 20, 16 << 20),
+    # an Xbox 360 title update package (tu00000001_00000000), as it is or in a zip
+    'update': (None, ('tu0000',), 1 << 20, None),
 }
+
+
+def disc_kind_matches(kind, name):
+    endings, beginnings = DISC_KINDS[kind][:2]
+    name = name.lower()
+    return (endings is None or name.endswith(endings)) and (beginnings is None or name.startswith(beginnings))
 
 
 def find_discs(home, kind='iso', limit=200, max_dirs=1500, mounts=DISC_MOUNTS):
     """Disc images (or BIOS files) in the usual places at home, on SD cards and USB drives, then
     anywhere else at home, the newest first, so the app can offer them without a file browser.
     Each place is looked through up to max_dirs folders, three levels down."""
-    endings, smallest, largest = DISC_KINDS[kind]
+    smallest, largest = DISC_KINDS[kind][2:]
     roots = [os.path.join(home, place) for place in DISC_PLACES]
     for pattern in mounts:
         roots += sorted(glob.glob(pattern))
@@ -902,7 +1007,7 @@ def find_discs(home, kind='iso', limit=200, max_dirs=1500, mounts=DISC_MOUNTS):
             # Hidden folders (Steam, caches, the ports' own data) and deep trees are skipped.
             dirs[:] = [d for d in dirs if not d.startswith('.')] if depth < 3 else []
             for name in files:
-                if not name.lower().endswith(endings):
+                if not disc_kind_matches(kind, name):
                     continue
                 path = os.path.join(here, name)
                 try:
@@ -918,7 +1023,6 @@ def find_discs(home, kind='iso', limit=200, max_dirs=1500, mounts=DISC_MOUNTS):
 
 def list_folder(path, kind='iso'):
     """One folder for the app's file browser: its subfolders and the files of the kind asked."""
-    endings = DISC_KINDS[kind][0]
     path = os.path.abspath(os.path.expanduser(path or '~'))
     try:
         names = sorted(os.listdir(path), key=str.lower)
@@ -931,7 +1035,7 @@ def list_folder(path, kind='iso'):
         full = os.path.join(path, name)
         if os.path.isdir(full):
             dirs.append({'name': name, 'path': full})
-        elif name.lower().endswith(endings):
+        elif disc_kind_matches(kind, name):
             try:
                 size = os.path.getsize(full)
             except OSError:
@@ -971,6 +1075,7 @@ def cli(argv):
     c.add_argument('action', choices=('install', 'update'))
     c.add_argument('--iso', default='')
     c.add_argument('--bios', default='')
+    c.add_argument('--update', default='', help="the game's title update, for a port that takes one")
     c.add_argument('--no-steam', action='store_true')
     for name in ('cancel', 'uninstall', 'art', 'tail'):
         sub.add_parser(name).add_argument('port')
@@ -992,7 +1097,7 @@ def cli(argv):
             result = check_updates(p, catalog, args.refresh, args.current)
         elif args.cmd == 'start':
             result = start_job(p, catalog, args.port, args.action, args.iso or None, args.bios or None,
-                               not args.no_steam)
+                               not args.no_steam, args.update or None)
         elif args.cmd == 'cancel':
             result = cancel_job(p, args.port)
         elif args.cmd == 'uninstall':
@@ -1201,7 +1306,7 @@ def job_status(p, port_id):
     return data
 
 
-def start_job(p, plugin_dir, port_id, action, iso=None, bios=None, add_to_steam=True):
+def start_job(p, plugin_dir, port_id, action, iso=None, bios=None, add_to_steam=True, update=None):
     port = find_port(plugin_dir, port_id)
     a = adapter_for(p, port)
     if not a.supported:
@@ -1209,8 +1314,9 @@ def start_job(p, plugin_dir, port_id, action, iso=None, bios=None, add_to_steam=
     current = job_status(p, port_id)
     if current and current['state'] == 'running':
         raise PortsError('A job is already running for this port.')
-    if iso and not os.path.exists(iso):
-        raise PortsError(f'Not found: {iso}')
+    for path in (iso, bios, update):
+        if path and not os.path.exists(path):
+            raise PortsError(f'Not found: {path}')
     space = free_space(p['share'])
     need = port.get('space_gb')
     if action == 'install' and need and space is not None and space < need * (1 << 30):
@@ -1218,14 +1324,15 @@ def start_job(p, plugin_dir, port_id, action, iso=None, bios=None, add_to_steam=
     state = load_state(p)
     latest = state['latest'].get(port_id)
     if not latest:
-        latest = latest_release(port['repo'], port.get('asset'), p['cache'])
+        latest = latest_for(port, p['cache'])
+        latest.update(a.extra_latest())
     os.makedirs(p['logs'], exist_ok=True)
     log = os.path.join(p['logs'], f'{port_id}-{time.strftime("%Y%m%d-%H%M%S")}.log')
     unit = f'armada-ports-{port_id}-{int(time.time())}'
     job = {
         'id': port_id, 'action': action, 'state': 'running', 'stage': 'Starting', 'percent': None,
         'message': '', 'log': log, 'started': time.time(), 'finished': None, 'pid': None, 'unit': unit,
-        'iso': iso or None, 'bios': bios or None, 'add_to_steam': bool(add_to_steam),
+        'iso': iso or None, 'bios': bios or None, 'update': update or None, 'add_to_steam': bool(add_to_steam),
         'home': p['home'], 'plugin_dir': plugin_dir, 'release': latest, 'announced': False,
     }
     path = job_file(p, port_id)
@@ -1334,7 +1441,10 @@ class Job:
 
 
 def fetch_launcher(job, a):
-    """Puts the release's launcher in the launcher folder, replacing an older one."""
+    """Puts the release's launcher in the launcher folder, replacing an older one (a port without a
+    launcher has nothing to fetch)."""
+    if not a.port.get('launcher'):
+        return
     rel = job.data.get('release') or {}
     if not rel.get('url'):
         raise PortsError('The newest release has no launcher download.')

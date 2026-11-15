@@ -107,11 +107,14 @@ class CatalogTest(unittest.TestCase):
         for port in ports:
             self.assertRegex(port['repo'], r'^Ken5998/[a-z0-9-]+$')
             self.assertIn(port.get('adapter'), (None, *core.ADAPTERS))
+            # A port with launcher releases names its launcher; one without (inFAMOUS) has neither.
             if port.get('adapter'):
-                self.assertTrue(port.get('launcher'), port['id'])
-            if port.get('adapter') in ('overlay', 'rusty-mcla'):
+                self.assertEqual(bool(port.get('launcher')), bool(port.get('asset')), port['id'])
+            if port.get('adapter') in ('overlay', 'rusty-mcla', 'fh1', 'infamous'):
                 for key in ('data', 'script', 'game', 'files'):
                     self.assertIn(key, port['overlay'], port['id'])
+            for need in port.get('needs', []):
+                self.assertIn(need, core.DISC_KINDS, port['id'])
             # What the app shows: a text in English and Italian, and SteamGridDB images.
             for key in ('about', 'rp6'):
                 self.assertTrue(port[key].get('en') and port[key].get('it'), (port['id'], key))
@@ -235,6 +238,81 @@ class DetectTest(Base):
                           env['MCLA_RENDER_SCALE'], env['MCLA_ADD_TO_STEAM']),
                          ('1600x900', 'borderless', '30', '0.67', '0'))
         self.assertEqual(a.name, 'Midnight Club: Los Angeles')
+
+    @staticmethod
+    def git_repo(path, origin=None):
+        os.makedirs(path, exist_ok=True)
+        env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t', GIT_COMMITTER_NAME='t',
+                   GIT_COMMITTER_EMAIL='t@t')
+        subprocess.run(['git', 'init', '-q', path], check=True)
+        if origin:
+            subprocess.run(['git', '-C', path, 'remote', 'add', 'origin', origin], check=True)
+        subprocess.run(['git', '-C', path, 'commit', '-q', '--allow-empty', '-m', 'x'], check=True, env=env)
+
+    def test_fh1(self):
+        a = core.adapter_for(self.p, self.port('fh1-reimagined'))
+        self.assertIsNone(a.detect())
+        data = os.path.join(self.p['share'], 'FH1ReImagined-arm64')
+        self.git_repo(os.path.join(data, 'overlay'))
+        os.makedirs(os.path.join(data, 'game'))
+        open(os.path.join(data, 'game', 'forza.sh'), 'w').close()
+        info = a.detect()
+        self.assertTrue(info['built'])
+        self.assertFalse(info['game_files'])
+        self.assertEqual(a.name, 'Forza Horizon ReImagined')
+        self.assertEqual(a.env()['FS_ADD_TO_STEAM'], '0')
+        self.assertTrue(a.update_available(info, {'version': '0.2.0', 'commit': '0' * 40}))
+
+        class Job:
+            data = {}
+        # No title update ever given: the disc's version; one given before: keep it; a new one: use it.
+        self.assertEqual(a.build_args(Job, None), ['-', 'none', data])
+        os.makedirs(os.path.join(data, 'files', 'game'))
+        open(os.path.join(data, 'files', 'game', 'default.xex'), 'w').close()
+        os.symlink('/gone/tu00000001_00000000', os.path.join(data, 'title-update'))
+        self.assertTrue(a.detect()['game_files'])
+        self.assertEqual(a.build_args(Job, None), ['-', '-', data])
+        Job.data = {'update': '/x/tu00000001_00000000.zip'}
+        self.assertEqual(a.build_args(Job, '/x/fh.iso'), ['/x/fh.iso', '/x/tu00000001_00000000.zip', data])
+
+    def test_infamous(self):
+        a = core.adapter_for(self.p, self.port('infamous-reborn'))
+        self.assertIsNone(a.detect())
+        self.assertFalse(a.launcher_installed())
+        data = os.path.join(self.p['share'], 'inFAMOUSReborn-arm64')
+        own = os.path.join(data, 'overlay')
+        self.assertEqual(a.overlay, own)
+        # Built by hand from a clone elsewhere: that clone is kept (its CMake build points there).
+        clone = os.path.join(self.home, 'Git', 'infamous-reborn-arm64')
+        self.git_repo(clone, 'https://github.com/Ken5998/infamous-reborn-arm64.git')
+        os.makedirs(os.path.join(clone, 'scripts'))
+        open(os.path.join(clone, 'scripts', 'build.sh'), 'w').close()
+        build = os.path.join(data, 'inFAMOUSreborn', 'infamous-recomp', 'build-arm64')
+        os.makedirs(build)
+        with open(os.path.join(build, 'CMakeCache.txt'), 'w') as f:
+            f.write('# cache\nCMAKE_BUILD_TYPE:STRING=Release\n'
+                    f'CMAKE_TOOLCHAIN_FILE:UNINITIALIZED={clone}/cmake/aarch64-w64-mingw32.cmake\n')
+        os.makedirs(os.path.join(data, 'game', 'PS3_GAME'))
+        open(os.path.join(data, 'infamous.sh'), 'w').close()
+        self.assertEqual(a.overlay, clone)
+        info = a.detect()
+        self.assertTrue(info['built'] and info['game_files'])
+        self.assertEqual(len(info['commit']), 40)
+        self.assertEqual((info['exe'], info['start_dir']), (os.path.join(data, 'infamous.sh'), data))
+        self.assertEqual(a.name, 'inFAMOUS')
+        self.assertEqual(a.env()['IF_ADD_TO_STEAM'], '0')
+        self.assertTrue(a.update_available(info, {'version': '', 'commit': '0' * 40}))
+        self.assertFalse(a.update_available(info, {'version': '', 'commit': info['commit']}))
+        # Another repository's clone is not taken; the app's own clone always wins.
+        subprocess.run(['git', '-C', clone, 'remote', 'set-url', 'origin', 'https://github.com/x/other.git'], check=True)
+        self.assertEqual(a.overlay, own)
+        self.git_repo(own)
+        self.assertEqual(a.overlay, own)
+
+    def test_port_without_releases(self):
+        latest = core.latest_for(self.port('infamous-reborn'))
+        self.assertEqual(latest['version'], '')
+        self.assertIsNone(latest['url'])
 
     def test_mm3(self):
         a = core.adapter_for(self.p, self.port('mm3-recomp'))
@@ -387,6 +465,26 @@ class JobTest(Base):
         self.assertIn('checksum', job['message'])
         self.assertFalse(os.path.exists(os.path.join(self.p['launchers'], 'fake')))
 
+    def test_port_without_launcher(self):
+        # inFAMOUS: nothing to download, the build runs straight away; a title update reaches the job.
+        catalog = os.path.join(self.plugin, 'ports.json')
+        data = json.load(open(catalog))
+        del data['ports'][0]['launcher']
+        json.dump(data, open(catalog, 'w'))
+        self.release['url'] = None
+        code, job = self.run_inline('disc.iso')
+        self.assertEqual(code, 0, open(os.path.join(self.home, 'log')).read())
+        self.assertFalse(os.path.exists(os.path.join(self.p['launchers'], 'fake')))
+        original = core.spawn
+        core.spawn = lambda *a: None
+        try:
+            job = core.start_job(self.p, self.plugin, 'fake', 'update', update=__file__)
+        finally:
+            core.spawn = original
+        self.assertEqual(job['update'], __file__)
+        with self.assertRaises(core.PortsError):
+            core.start_job(self.p, self.plugin, 'fake', 'update', update='/no/such/tu00000001_00000000')
+
     def test_spawned_job_runs_on_its_own(self):
         # The real path: a separate process (systemd-run when there is a user session).
         job = core.start_job(self.p, self.plugin, 'fake', 'install', iso=__file__)
@@ -467,6 +565,13 @@ class AppTest(Base):
         names = sorted(d['name'] for d in core.find_discs(self.home, mounts=()))
         self.assertEqual(names, ['Game.iso', 'Other.ISO'])
         self.assertEqual([d['name'] for d in core.find_discs(self.home, 'bios', mounts=())], ['SCPH-70012.bin'])
+        make(os.path.join(self.home, 'Downloads', 'FH1', 'tu00000001_00000000'), 300 << 20)
+        make(os.path.join(self.home, 'Downloads', 'TU00000001_00000000.zip'), 290 << 20)
+        make(os.path.join(self.home, 'Downloads', 'tu00000002_00000000'), 1024)
+        self.assertEqual(sorted(d['name'] for d in core.find_discs(self.home, 'update', mounts=())),
+                         ['TU00000001_00000000.zip', 'tu00000001_00000000'])
+        self.assertEqual([f['name'] for f in core.list_folder(os.path.join(self.home, 'Downloads'), 'update')['files']],
+                         ['TU00000001_00000000.zip', 'tu00000002_00000000'])   # the browser shows any size
 
     def test_list_folder(self):
         os.makedirs(os.path.join(self.home, 'b'))

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Makes a pretend home folder for trying the app (and taking the README screenshots) on a
 computer without any port installed: Pinyon Shift installed, FIFA Street with an update, Saints
-Reborn building, the rest not installed, and the newest releases already looked up.
+Reborn building, inFAMOUS Reborn installed with newer commits on main, the rest not installed, and
+the newest releases already looked up.
 
     python3 scripts/demo-home.py /tmp/demo-home      # prints the pid of the pretend build
     HOME=/tmp/demo-home ARMADA_PORTS_BACKEND=<folder with armadaports.py and ports.json> godot ...
@@ -39,9 +40,20 @@ put(f'{data}/game/fifastreet.sh', '#!/bin/sh\necho "FIFA Street (demo)"; sleep 2
 put(f'{data}/GameData/default.xex', 'xex')
 put('.local/share/armada-ports/launchers/fifa-street/fifastreet-launcher', '#!/bin/sh\necho 1.3.0\n', 0o755)
 
-# Disc images to pick from
+# inFAMOUS Reborn, built from the app's clone, main has moved on since
+data = '.local/share/inFAMOUSReborn-arm64'
+put(f'{data}/infamous.sh', '#!/bin/sh\necho "inFAMOUS (demo)"; sleep 2\n', 0o755)
+put(f'{data}/game/PS3_GAME/PARAM.SFO', 'sfo')
+overlay = os.path.join(home, data, 'overlay')
+git_env = dict(os.environ, GIT_AUTHOR_NAME='demo', GIT_AUTHOR_EMAIL='demo@example.invalid',
+               GIT_COMMITTER_NAME='demo', GIT_COMMITTER_EMAIL='demo@example.invalid')
+subprocess.run(['git', 'init', '-q', overlay], check=True)
+subprocess.run(['git', '-C', overlay, 'commit', '-q', '--allow-empty', '-m', 'demo'], check=True, env=git_env)
+
+# Disc images (and a title update) to pick from
 for name, size in (('Forza Horizon (USA).iso', 7 << 30), ('Midnight Club - Los Angeles.iso', 7 << 30),
-                   ('Skate 3.iso', 6 << 30)):
+                   ('Skate 3.iso', 6 << 30), ('Infamous (Europe).dec.iso', 12 << 30),
+                   ('FH1 TU4/tu00000001_00000000', 300 << 20)):
     path = os.path.join(home, 'Downloads', name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'wb') as f:
@@ -52,10 +64,11 @@ notes = {
     'fifa-street': "## What's new\n\n- Steady 60 fps on the RP6 with the ARMv8.2 engine flags.\n- Update rebuilds only what changed.\n",
     'saints-reborn': "## What's new\n\n- Rebased on SaintsReborn main.\n- GPU Tweaks on by default.\n",
     'skate3-recomp': "## What's new\n\n- First release: builds Skate 3 on the handheld from your disc image.\n- Native Vulkan renderer, GTK3 sysroot.\n",
+    'fh1-reimagined': "## What's new\n\n- Install DLC and community car packs from the launcher.\n- The disc image and update may go after the first build.\n",
 }
 versions = {'pinyon-shift': '0.8.2', 'fifa-street': '1.4.0', 'saints-reborn': '0.4.1', 'mm3-recomp': '0.1.12',
             'rusty-mcla': '0.3.1', 'fh2-recompiled': '0.1.0', 'skate3-recomp': '0.1.0', 'road-trip': '0.1.0',
-            'reskate': '0.8.0', 'azimuth': '0.2.0'}
+            'reskate': '0.8.0', 'azimuth': '0.2.0', 'fh1-reimagined': '0.2.0'}
 state = {
     'checked': time.time(),
     'ports': {'pinyon-shift': {'steam_appid': 3000000001}},
@@ -63,6 +76,9 @@ state = {
                      'size': 1, 'page': '', 'published': '2026-11-10T10:00:00Z', 'notes': notes.get(pid, '')}
                for pid, v in versions.items()},
 }
+# A port without launcher releases: only main's newest commit.
+state['latest']['infamous-reborn'] = {'tag': '', 'version': '', 'url': None, 'sha256': None, 'size': 0, 'page': '',
+                                      'published': '', 'notes': '', 'commit': 'c3d9e1f7a2b4c6d8e0f1a3b5c7d9e1f3a5b7c9d1'}
 os.makedirs(root, exist_ok=True)
 with open(os.path.join(root, 'state.json'), 'w') as f:
     json.dump(state, f, indent=2)

@@ -300,6 +300,105 @@
       }
     },
     {
+      "id": "fh1-reimagined",
+      "name": "FH1 ReImagined",
+      "game": "Forza Horizon (Xbox 360)",
+      "repo": "Ken5998/fh1-reimagined-arm64",
+      "asset": "FH1ReImagined-Launcher-linux-arm64.tar.gz",
+      "launcher": "fh1-launcher",
+      "adapter": "fh1",
+      "needs": [
+        "iso",
+        "update"
+      ],
+      "disc": "disc 1",
+      "title_update": "Title Update 4",
+      "steam_name": "Forza Horizon ReImagined",
+      "build_minutes": [
+        60,
+        null
+      ],
+      "space_gb": 35,
+      "overlay": {
+        "data": "FH1ReImagined-arm64",
+        "script": "scripts/build.sh",
+        "game": "game/forza.sh",
+        "files": [
+          "disc.iso",
+          "files/game/default.xex"
+        ],
+        "env": {
+          "FS_ADD_TO_STEAM": "0"
+        },
+        "commit_updates": true
+      },
+      "sgdb": 19719,
+      "upstream": {
+        "name": "FH1-ReImagined",
+        "url": "https://github.com/FH1-ReImagined/ForzaHorizon1-ReImagined"
+      },
+      "about": {
+        "en": "Forza Horizon for Xbox 360 recompiled with ReIGlue, with Title Update 4 and online play back. The launcher builds it on the handheld from your disc image; DLC and car packs install from the launcher.",
+        "it": "Forza Horizon per Xbox 360 ricompilato con ReIGlue, con il Title Update 4 e l'online di nuovo attivo. Il launcher lo compila sulla console dal tuo disco; DLC e pacchetti auto si installano dal launcher."
+      },
+      "rp6": {
+        "en": "22-30 fps for now (GPU-bound); a native renderer is being tested.",
+        "it": "22-30 fps per ora (limitato dalla GPU); un renderer nativo è in prova."
+      },
+      "art": {
+        "grid": "https://cdn2.steamgriddb.com/grid/032e3a57ffe2e661b0096d0d504c53a1.png",
+        "wide": "https://cdn2.steamgriddb.com/grid/6bd873ad4d63fe8b1d65d814fb68e477.png",
+        "hero": "https://cdn2.steamgriddb.com/hero/25e646de1d14a0538e631e7f3605eb12.jpg",
+        "logo": "https://cdn2.steamgriddb.com/logo/54a79c89cc03e5269dd8e989d4c8e8a1.png"
+      }
+    },
+    {
+      "id": "infamous-reborn",
+      "name": "inFAMOUS Reborn",
+      "game": "inFAMOUS (PS3)",
+      "repo": "Ken5998/infamous-reborn-arm64",
+      "adapter": "infamous",
+      "needs": [
+        "iso"
+      ],
+      "disc": "European disc BCES00220",
+      "steam_name": "inFAMOUS",
+      "build_minutes": [
+        180,
+        null
+      ],
+      "space_gb": 15,
+      "overlay": {
+        "data": "inFAMOUSReborn-arm64",
+        "script": "scripts/build.sh",
+        "game": "infamous.sh",
+        "files": "game/PS3_GAME",
+        "env": {
+          "IF_ADD_TO_STEAM": "0"
+        },
+        "commit_updates": true
+      },
+      "sgdb": 5173873,
+      "upstream": {
+        "name": "whompay/inFAMOUSreborn",
+        "url": "https://github.com/whompay/inFAMOUSreborn"
+      },
+      "about": {
+        "en": "inFAMOUS for PS3 recompiled with ps3recomp, built on the handheld as a Windows ARM64 program for Steam's ARM64 Proton. No launcher: the app builds it from your disc image and keeps it up to date.",
+        "it": "inFAMOUS per PS3 ricompilato con ps3recomp, compilato sulla console come programma Windows ARM64 per il Proton ARM64 di Steam. Niente launcher: lo compila l'app dal tuo disco e lo tiene aggiornato."
+      },
+      "rp6": {
+        "en": "Work in progress: menus 30-60 fps, 3D 10-25 fps for now.",
+        "it": "Lavori in corso: menu a 30-60 fps, 3D a 10-25 fps per ora."
+      },
+      "art": {
+        "grid": "https://cdn2.steamgriddb.com/grid/9198689b820fc4a59bdcaa334b8cfbd5.png",
+        "wide": "https://cdn2.steamgriddb.com/grid/17885ade5071f9e47d8ea3ed54c68015.png",
+        "hero": "https://cdn2.steamgriddb.com/hero/06a245aa7faba53ed172f42b15f5d9f8.jpg",
+        "logo": "https://cdn2.steamgriddb.com/logo/68624a8a1f8dd04e260c0173bad7ee31.png"
+      }
+    },
+    {
       "id": "road-trip",
       "name": "Road Trip Adventure",
       "game": "Road Trip Adventure (PS2, ARMSX2)",

@@ -23,6 +23,8 @@ your own disc image, update it and play it, without going to Desktop Mode.
 | [Rusty MCLA](https://github.com/Ken5998/rusty-mcla-arm64) | Midnight Club: Los Angeles | install, update, play |
 | [FH2 Recompiled](https://github.com/Ken5998/fh2-recompiled-arm64) | Forza Horizon 2 (Xbox 360) | install, update, play |
 | [Skate 3 Recomp](https://github.com/Ken5998/skate3-recomp-arm64) | Skate 3 (Xbox 360) | install, update, play |
+| [FH1 ReImagined](https://github.com/Ken5998/fh1-reimagined-arm64) | Forza Horizon (Xbox 360) | install, update, play |
+| [inFAMOUS Reborn](https://github.com/Ken5998/infamous-reborn-arm64) | inFAMOUS (PS3) | install, update, play |
 | [Road Trip Adventure](https://github.com/Ken5998/road-trip-arm64) | Road Trip Adventure (PS2) | newest release, for now |
 | [ReSkate](https://github.com/Ken5998/reskate-arm64) | skate. (Steam) | newest release, for now |
 | [Azimuth Turnip](https://github.com/Ken5998/azimuth-arm64) | Forza Horizon 2 driver | newest release, for now |
@@ -61,7 +63,9 @@ Armada Ports**); the app then appears in your library on its own.
 The touchscreen works too: tap a cover to pick it, tap it again to open it, drag the row.
 
 - **Install** finds the disc images in your home folder, Downloads, Games and on the SD card and
-  lists them; **Browse folders** if yours is elsewhere. It then tells you how long the build takes
+  lists them; **Browse folders** if yours is elsewhere. A port that takes a title update (FH1
+  ReImagined's Title Update 4) asks for it next, the same way, or builds without it. It then tells
+  you how long the build takes
   and starts it. The build runs as its own service, so you can leave the app and play something else;
   keep the charger plugged in. A notification tells you when it is done, and the game is added to
   your Steam library.
@@ -71,6 +75,11 @@ The touchscreen works too: tap a cover to pick it, tap it again to open it, drag
   Control.
 - **Update to …** shows up when a new release is out. It brings the new launcher and rebuilds from
   the game files already extracted, so the disc image is only asked for again if those are gone.
+  The ports that change often (FIFA Street, Saints Reborn, FH1 ReImagined, inFAMOUS Reborn) offer
+  **Update** as soon as their repository's main has new scripts or patches, release or not;
+  inFAMOUS Reborn has no launcher at all, so that is how it updates. If you built inFAMOUS by hand
+  from a clone of its repository, the app keeps using that clone (another one would make the game
+  build start over from scratch).
 - **Add to Steam** puts the game in your library with its artwork, through the plugin.
 - **Uninstall** deletes the build, its extracted game files, its saves and its Steam shortcut. Your
   disc image stays.

@@ -27,6 +27,27 @@ static func version_text(v: String) -> String:
 	return v if v.begins_with("v") else "v" + v
 
 
+## The newest version as shown: its release, or for a port without releases the commit on main.
+static func latest_text(p: Dictionary) -> String:
+	var v := version_text(latest_version(p))
+	var l: Variant = p.get("latest")
+	if v == "" and l is Dictionary:
+		return str(l.get("commit", "")).left(7)
+	return v
+
+
+## The installed version as shown, the same way.
+static func installed_text(p: Dictionary) -> String:
+	var i := installed(p)
+	var v := version_text(str(i.get("version", "")))
+	return v if v != "" else str(i.get("commit", "")).left(7)
+
+
+static func update_button(p: Dictionary) -> String:
+	var v := version_text(latest_version(p))
+	return L.t("update_to", v) if v != "" else L.t("update")
+
+
 ## The state line and its colour.
 static func status(p: Dictionary) -> Array:
 	if job_running(p):
@@ -47,8 +68,8 @@ static func status(p: Dictionary) -> Array:
 	if not built(p):
 		return [L.t("st_unfinished"), UI.AMBER]
 	if p.get("update", false):
-		return [L.t("st_update", version_text(latest_version(p))), UI.AMBER]
-	var v := version_text(str(i.get("version", "")))
+		return [L.t("st_update", latest_text(p)), UI.AMBER]
+	var v := installed_text(p)
 	return [L.t("st_installed", v) if v != "" else L.t("st_installed", "").trim_suffix(" · "), UI.GREEN]
 
 
@@ -57,6 +78,8 @@ static func build_time(p: Dictionary) -> String:
 	if not m is Array or m.is_empty() or m[0] == null:
 		return L.t("hour_plus")
 	if m.size() < 2 or m[1] == null:
+		if int(m[0]) >= 120:
+			return L.t("hours_plus", int(float(m[0]) / 60.0))
 		return L.t("hour_plus") if int(m[0]) >= 60 else L.t("minutes_plus", int(m[0]))
 	return L.t("minutes", [int(m[0]), int(m[1])])
 
@@ -73,6 +96,9 @@ static func needs(p: Dictionary) -> String:
 			parts.append(s)
 		if "bios" in list:
 			parts.append(L.t("needs_bios"))
+		if "update" in list:
+			var which := str(p.get("title_update", ""))
+			parts.append(L.t("needs_update", which if which != "" else L.t("its_update")))
 	return ", ".join(parts) if not parts.is_empty() else L.t("needs_nothing")
 
 

@@ -294,27 +294,34 @@ func _on_action(id: String, what: String) -> void:
 					backend.run(["cancel", id], func(_ok: bool, _r: Variant, _e: String) -> void: _refresh()))
 
 
-## Install, finish or update: asks for the disc image (and BIOS) only when the port needs it and
-## the game files are not extracted yet, then confirms with the build time.
+## Install, finish or update: asks for the disc image (and BIOS, or title update) only when the port
+## needs it and the game files are not extracted yet, then confirms with the build time.
 func _install(p: Dictionary, action: String) -> void:
 	var needs: Array = p.get("needs", [])
 	var have_files := bool(PortInfo.installed(p).get("game_files", false))
-	var after_iso := func(iso: String) -> void:
-		var after_bios := func(bios: String) -> void:
-			var title := L.t("update_title" if action == "update" else "install_title", p["name"])
-			var text := L.t("update_text") if action == "update" else L.t("install_text", PortInfo.build_time(p))
-			confirm.ask(title, text, L.t("install") if action == "install" else L.t("update_to", PortInfo.version_text(PortInfo.latest_version(p))),
-				func(ok: bool) -> void:
-					if ok:
-						_start(p, action, iso, bios))
-		if "bios" in needs and not have_files:
-			_pick("bios", after_bios)
-		else:
-			after_bios.call("")
-	if "iso" in needs and not have_files:
-		_pick("iso", after_iso)
-	else:
-		after_iso.call("")
+	var kinds := []
+	if not have_files:
+		for kind in ["iso", "bios", "update"]:
+			if kind in needs:
+				kinds.append(kind)
+	_pick_each(kinds, {}, func(picks: Dictionary) -> void:
+		var title := L.t("update_title" if action == "update" else "install_title", p["name"])
+		var text := L.t("update_text") if action == "update" else L.t("install_text", PortInfo.build_time(p))
+		var button := L.t("install") if action == "install" else PortInfo.update_button(p)
+		confirm.ask(title, text, button, func(ok: bool) -> void:
+			if ok:
+				_start(p, action, picks)))
+
+
+## Opens the picker for each kind of file in turn, then calls then with {kind: path}.
+func _pick_each(kinds: Array, picks: Dictionary, then: Callable) -> void:
+	if kinds.is_empty():
+		then.call(picks)
+		return
+	var kind: String = kinds[0]
+	_pick(kind, func(path: String) -> void:
+		picks[kind] = path
+		_pick_each(kinds.slice(1), picks, then))
 
 
 func _pick(kind: String, then: Callable) -> void:
@@ -324,12 +331,11 @@ func _pick(kind: String, then: Callable) -> void:
 	picker.open(kind)
 
 
-func _start(p: Dictionary, action: String, iso: String, bios: String) -> void:
+func _start(p: Dictionary, action: String, picks: Dictionary) -> void:
 	var args := ["start", p["id"], action]
-	if iso != "":
-		args += ["--iso", iso]
-	if bios != "":
-		args += ["--bios", bios]
+	for kind in ["iso", "bios", "update"]:
+		if str(picks.get(kind, "")) != "":
+			args += ["--" + kind, str(picks[kind])]
 	backend.run(args, func(ok: bool, _r: Variant, err: String) -> void:
 		if ok:
 			toast.say(L.t("started"), UI.ACCENT)

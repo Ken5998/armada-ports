@@ -206,6 +206,8 @@ func _fill(first: bool) -> void:
 	var latest := PortInfo.latest_version(p)
 	if latest != "":
 		_fact(L.t("f_latest"), PortInfo.version_text(latest))
+	elif PortInfo.latest_text(p) != "":
+		_fact(L.t("f_latest_commit"), PortInfo.latest_text(p))
 
 	var notes := PortInfo.notes(p, 6)
 	_notes_title.visible = not notes.is_empty()
@@ -268,7 +270,7 @@ func _wanted_actions(p: Dictionary) -> Array:
 		# An install made with its launcher elsewhere may not tell its version: offer the newest
 		# release then too (it rebuilds from the files already extracted).
 		if p.get("update", false) or (str(info.get("version", "")) == "" and latest != ""):
-			out.append(["update", L.t("update_to", PortInfo.version_text(latest)), false])
+			out.append(["update", PortInfo.update_button(p), false])
 		if not in_steam:
 			out.append(["steam", L.t("add_steam"), false])
 	out.append(["remove", L.t("remove"), false])

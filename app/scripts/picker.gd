@@ -1,13 +1,19 @@
 class_name Picker
 extends Control
-## Picking a disc image (or BIOS) with the controller: first the files found in the usual places,
-## then, if it is elsewhere, a folder browser.
+## Picking a disc image (or BIOS, or title update) with the controller: first the files found in the
+## usual places, then, if it is elsewhere, a folder browser. A title update can be left out.
 
 signal picked(path: String)
 signal cancelled
 
 var backend: Backend
 var kind := "iso"
+const TEXTS := {
+	# kind: [title, while searching, nothing found]
+	"iso": ["pick_iso", "searching", "no_discs"],
+	"bios": ["pick_bios", "searching", "no_discs"],
+	"update": ["pick_update", "searching_update", "no_updates"],
+}
 var _title: Label
 var _where: Label
 var _list: VBoxContainer
@@ -63,14 +69,14 @@ func _ready() -> void:
 
 func open(what: String) -> void:
 	kind = what
-	_title.text = L.t("pick_bios") if kind == "bios" else L.t("pick_iso")
+	_title.text = L.t(TEXTS[kind][0])
 	show()
 	_show_found()
 
 
 func _show_found() -> void:
 	_browsing = false
-	_where.text = L.t("searching")
+	_where.text = L.t(TEXTS[kind][1])
 	_clear()
 	backend.run(["discs", "--kind", kind], func(ok: bool, result: Variant, err: String) -> void:
 		if _browsing or not visible:
@@ -82,9 +88,11 @@ func _show_found() -> void:
 				_entry(str(d["name"]), "%s   ·   %s" % [UI.human_size(float(d["size"])), _short(str(d["folder"]))],
 						_pick.bind(str(d["path"])), "file")
 		elif ok:
-			var l := UI.wrapped(L.t("no_discs"), 15, UI.MUTED)
+			var l := UI.wrapped(L.t(TEXTS[kind][2]), 15, UI.MUTED)
 			_list.add_child(l)
 		_entry(L.t("browse"), "", func(): _browse(OS.get_environment("HOME")), "dir")
+		if kind == "update":
+			_entry(L.t("skip_update"), "", _pick.bind(""), "skip")
 		_focus_first()
 	)
 
@@ -205,6 +213,9 @@ class EntryIcon:
 			"dir":
 				draw_rect(Rect2(1, 5, 20, 14), c, false, 2.0)
 				draw_rect(Rect2(1, 3, 8, 3), c)
+			"skip":
+				draw_line(Vector2(4, 11), Vector2(18, 11), c, 2.2, true)
+				draw_polyline(PackedVector2Array([Vector2(12, 5), Vector2(18, 11), Vector2(12, 17)]), c, 2.2, true)
 			"up":
 				draw_polyline(PackedVector2Array([Vector2(4, 12), Vector2(11, 5), Vector2(18, 12)]), c, 2.2, true)
 				draw_line(Vector2(11, 5), Vector2(11, 19), c, 2.2, true)
