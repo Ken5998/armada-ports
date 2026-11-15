@@ -12,7 +12,7 @@ config_version=5
 
 config/name="Armada Ports"
 config/description="The ARM64 game ports for ArmadaOS, from Game Mode."
-config/version="0.3.0"
+config/version="0.4.0"
 run/main_scene="res://main.tscn"
 config/use_custom_user_dir=true
 config/custom_user_dir_name="armada-ports"
